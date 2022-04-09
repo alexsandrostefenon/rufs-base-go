@@ -273,6 +273,7 @@ func loadTable[T any](rms *RufsMicroService, name string, defaultRows []T) ([]T,
 			}
 		} else {
 			err = FileDbAdapterStore(rms.fileDbAdapter, name, defaultRows)
+			list = defaultRows
 		}
 	}
 
