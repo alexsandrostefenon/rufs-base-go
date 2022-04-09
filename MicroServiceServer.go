@@ -105,7 +105,7 @@ func (mss *MicroServiceServer) Init(imss IMicroServiceServer) {
 	}
 
 	http.HandleFunc("/"+mss.apiPath+"/", func(res http.ResponseWriter, req *http.Request) {
-		log.Printf("[MicroServiceServer.ServeHTTP]")
+		log.Printf("[MicroServiceServer.HandleFunc] : received http request %s from %s", req.RequestURI, req.RemoteAddr)
 		paths := strings.Split(req.URL.Path, "/")
 		var resource string
 		var action string
@@ -137,9 +137,9 @@ func (mss *MicroServiceServer) Init(imss IMicroServiceServer) {
 	upgrader := websocket.Upgrader{}
 	log.Printf("[MicroServiceServer.Init] : websocket")
 
-	http.HandleFunc("/websocket", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[MicroServiceServer.Init]")
-		connection, err := upgrader.Upgrade(w, r, nil)
+	http.HandleFunc("/websocket", func(w http.ResponseWriter, req *http.Request) {
+		log.Printf("[MicroServiceServer.HandleFunc] : received websocket request %s from %s", req.RequestURI, req.RemoteAddr)
+		connection, err := upgrader.Upgrade(w, req, nil)
 
 		if err != nil {
 			log.Print("upgrade:", err)
@@ -172,6 +172,7 @@ func (mss *MicroServiceServer) OnRequest(req *http.Request, resource string, act
 }
 
 func (mss *MicroServiceServer) Listen() error {
+	log.Print("[MicroServiceServer.Listen]")
 	return mss.httpServer.ListenAndServe()
 }
 
