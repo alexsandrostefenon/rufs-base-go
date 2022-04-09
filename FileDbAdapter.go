@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"io/ioutil"
+	"log"
 )
 
 type FileDbAdapter struct {
@@ -67,12 +68,18 @@ func FileDbAdapterStore[T any](fda *FileDbAdapter, name string, list []T) error 
 		}
 
 	*/
+	fileName := fmt.Sprintf("%s.json", name)
+	log.Printf("[FileDbAdapterStore] : writing file %s ...", fileName)
+
 	if data, err := json.Marshal(list); err != nil {
+		log.Fatalf("[FileDbAdapterStore] : failt to marshal list before wrinting file %s : %s", fileName, err)
 		return err
-	} else if err = ioutil.WriteFile(fmt.Sprintf("%s.json", name), data, fs.ModePerm); err != nil {
+	} else if err = ioutil.WriteFile(fileName, data, fs.ModePerm); err != nil {
+		log.Fatalf("[FileDbAdapterStore] : failt to write file %s : %s", fileName, err)
 		return err
 	}
 
+	log.Printf("[FileDbAdapterStore] : ... writed file %s", fileName)
 	listAny := make([]any, len(list))
 
 	for i := range list {
