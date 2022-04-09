@@ -15,7 +15,7 @@ func UnderscoreToCamel(str string, isFirstUpper bool) string {
 
 		var firstChar string
 
-		if isFirstUpper && index == 0 {
+		if index > 0 || isFirstUpper {
 			firstChar = strings.ToUpper(name[0:1])
 		} else {
 			firstChar = name[0:1]

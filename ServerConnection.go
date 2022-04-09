@@ -7,10 +7,12 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/gorilla/websocket"
+
+	//"github.com/hetiansu5/urlquery"
+	"github.com/derekstavis/go-qs"
 )
 
 type HttpRestRequest struct {
@@ -28,7 +30,7 @@ func (hrq *HttpRestRequest) Init(url string) {
 	hrq.Url = url
 }
 
-func RufsRestRequest[T, U any](hrq *HttpRestRequest, path string, method string, params *url.Values, objSend *T, objReceive *U) (resp *http.Response, err error) {
+func RufsRestRequest[T, U any](hrq *HttpRestRequest, path string, method string, params map[string]any, objSend *T, objReceive *U) (resp *http.Response, err error) {
 	url := hrq.Url
 
 	if !strings.HasSuffix(url, "/") && !strings.HasPrefix(path, "/") {
@@ -45,18 +47,22 @@ func RufsRestRequest[T, U any](hrq *HttpRestRequest, path string, method string,
 		bodyBuffer, err = json.Marshal(objSend)
 
 		if err != nil {
-			log.Fatalf("1 : %s", err)
+			return nil, fmt.Errorf("[RufsRestRequest] broken object to send : %s", err)
 		}
 	}
 
 	req, err := http.NewRequest(method, url, bytes.NewBuffer(bodyBuffer))
 
 	if err != nil {
-		log.Fatalf("2 : %s", err)
+		return nil, fmt.Errorf("[RufsRestRequest] broken new request : %s", err)
 	}
 
 	if params != nil {
-		req.URL.RawQuery = params.Encode()
+		req.URL.RawQuery, err = qs.Marshal(params)
+
+		if err != nil {
+			return nil, fmt.Errorf("[RufsRestRequest] broken url query parameters : %s", err)
+		}
 	}
 
 	req.Header.Add("content-type", contentType)
@@ -70,7 +76,6 @@ func RufsRestRequest[T, U any](hrq *HttpRestRequest, path string, method string,
 
 	client := &http.Client{}
 	resp, errReq := client.Do(req)
-	log.Printf("[HttpRequest] 1")
 
 	if errReq != nil {
 		hrq.MessageError = fmt.Sprint(errReq)
@@ -85,13 +90,13 @@ func RufsRestRequest[T, U any](hrq *HttpRestRequest, path string, method string,
 		err = decoder.Decode(objReceive)
 
 		if err != nil {
-			log.Fatalf("4 : %s", err)
+			return nil, fmt.Errorf("[RufsRestRequest] broken object received : %s", err)
 		}
 	} else {
 		bodyBytes, err := io.ReadAll(resp.Body)
 
 		if err != nil {
-			log.Fatalf("5 : %s", err)
+			return nil, fmt.Errorf("[RufsRestRequest] broken message received : %s", err)
 		}
 
 		hrq.MessageError = string(bodyBytes)
@@ -180,6 +185,7 @@ type ServerConnection struct {
 	httpRest      HttpRestRequest
 	loginResponse LoginResponse
 	webSocket     *websocket.Conn
+	lastMessage   NotifyMessage
 }
 
 /*
@@ -258,12 +264,14 @@ func (sc *ServerConnection) webSocketConnect(path string) (err error) {
 
 	go func() {
 		for {
-			_, message, err := sc.webSocket.ReadMessage()
+			_, buffer, err := sc.webSocket.ReadMessage()
 			if err != nil {
 				log.Println("read:", err)
 				return
 			}
-			log.Printf("recv: %s", message)
+
+			json.Unmarshal(buffer, &sc.lastMessage)
+			log.Printf("recv: %s", sc.lastMessage)
 			/*
 				var item = JSON.parse(event.data);
 				console.log("[ServerConnection] webSocketConnect : onMessage :", item);
@@ -301,7 +309,7 @@ func (sc *ServerConnection) Login(server string, path string, loginPath string, 
 	}
 
 	sc.httpRest.Init(server)
-	resp, err = RufsRestRequest(&sc.httpRest, loginPath, http.MethodPost, nil, &User{Name: user, Password: password}, &sc.loginResponse)
+	resp, err = RufsRestRequest(&sc.httpRest, loginPath, http.MethodPost, nil, &RufsUser{Name: user, Password: password}, &sc.loginResponse)
 
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return resp, err

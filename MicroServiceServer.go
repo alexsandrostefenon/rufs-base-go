@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 	"path"
 	"reflect"
 	"strings"
 
-	"github.com/golang-jwt/jwt"
 	"github.com/gorilla/websocket"
 )
 
@@ -32,7 +31,7 @@ func ResponseCreate(body []byte, status int) Response {
 		resp.ContentType = "text"
 	}
 
-	log.Printf("[ResponseCreate] : body = %s", string(body))
+	//log.Printf("[ResponseCreate] : body = %s", string(body))
 	return resp
 }
 
@@ -61,25 +60,27 @@ func ResponseInternalServerError(msg string) Response {
 }
 
 type MicroServiceServer struct {
+	appName             string
+	protocol            string
 	port                int
 	addr                string
 	apiPath             string
+	security            string
 	serveStaticPaths    string
 	wsServerConnections map[string]*websocket.Conn
-	wsServerTokens      map[string]jwt.MapClaims
 	httpServer          *http.Server
 }
 
 type IMicroServiceServer interface {
-	Init(imss IMicroServiceServer)
+	Init(imss IMicroServiceServer) error
 	Listen() error
 	Shutdown()
 	OnRequest(req *http.Request, resource string, action string) Response
+	OnWsMessageFromClient(connection *websocket.Conn, tokenString string)
 }
 
 func (mss *MicroServiceServer) Init(imss IMicroServiceServer) {
 	mss.wsServerConnections = make(map[string]*websocket.Conn)
-	mss.wsServerTokens = make(map[string]jwt.MapClaims)
 	serveStaticPaths := path.Join(path.Dir(reflect.TypeOf(mss).PkgPath()), "webapp")
 
 	if mss.serveStaticPaths == "" {
@@ -105,7 +106,7 @@ func (mss *MicroServiceServer) Init(imss IMicroServiceServer) {
 
 	http.HandleFunc("/"+mss.apiPath+"/", func(res http.ResponseWriter, req *http.Request) {
 		log.Printf("[MicroServiceServer.ServeHTTP]")
-		paths := strings.Split(req.RequestURI, "/")
+		paths := strings.Split(req.URL.Path, "/")
 		var resource string
 		var action string
 
@@ -121,14 +122,14 @@ func (mss *MicroServiceServer) Init(imss IMicroServiceServer) {
 		res.Header().Set("Access-Control-Allow-Methods", "GET, PUT, OPTIONS, POST, DELETE")
 		res.Header().Set("Access-Control-Allow-Headers", req.Header.Get("Access-Control-Request-Headers"))
 
-		if req.Method == "OPTIONS" {
+		if req.Method == http.MethodOptions {
 			fmt.Fprint(res, "Ok")
 			return
 		}
 
 		ret := imss.OnRequest(req, resource, action)
 		res.Header().Set("Content-Type", ret.ContentType)
-		log.Printf("[HandleFunc] : ret.Body = %s", string(ret.Body))
+		//log.Printf("[HandleFunc] : ret.Body = %s", string(ret.Body))
 		res.WriteHeader(ret.StatusCode)
 		res.Write(ret.Body)
 	})
@@ -160,7 +161,7 @@ func (mss *MicroServiceServer) Init(imss IMicroServiceServer) {
 				break
 			}
 
-			mss.onWsMessageFromClient(connection, string(message))
+			imss.OnWsMessageFromClient(connection, string(message))
 		}
 	})
 }
@@ -174,31 +175,32 @@ func (mss *MicroServiceServer) Listen() error {
 	return mss.httpServer.ListenAndServe()
 }
 
-func (mss *MicroServiceServer) onWsMessageFromClient(connection *websocket.Conn, tokenString string) {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		// Don't forget to validate the alg is what you expect:
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+func (mss *MicroServiceServer) LoadOpenApi() (*OpenApi, error) {
+	//if (fileName == null) fileName = this.constructor.getArg("openapi-file");
+	//if (fileName == null) fileName = `openapi-${this.config.appName}.json`;
+	fileName := fmt.Sprintf("openapi-%s.json", mss.appName)
+	//console.log(`[${this.constructor.name}.loadOpenApi()] loading ${fileName}`);
+	openapi := &OpenApi{}
+
+	if data, err := ioutil.ReadFile(fileName); err == nil {
+		if err = json.Unmarshal(data, &openapi); err != nil {
+			//console.log(`[${this.constructor.name}.loadOpenApi()] : fail to parse file :`, err);
+			OpenApiCreate(openapi, mss.security)
 		}
-
-		jwtSecret := os.Getenv("RUFS_JWT_SECRET")
-
-		if jwtSecret == "" {
-			jwtSecret = "123456"
-		}
-
-		hmacSampleSecret := []byte(jwtSecret)
-		return hmacSampleSecret, nil
-	})
-
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		name := claims["name"].(string)
-		mss.wsServerConnections[name] = connection
-		mss.wsServerTokens[name] = claims
-		log.Printf("[MicroServiceServer.onWsMessageFromClient] Ok")
 	} else {
-		fmt.Println(err)
+		OpenApiCreate(openapi, mss.security)
 	}
+
+	if len(openapi.Servers) == 0 {
+		openapi.Servers = append(openapi.Servers, &OpenApiServerComponent{Url: fmt.Sprintf("%s://localhost:%d/%s", mss.protocol, mss.port, mss.apiPath)})
+		openapi.Servers = append(openapi.Servers, &OpenApiServerComponent{Url: fmt.Sprintf("%s://localhost:%d/%s/%s", mss.protocol, (mss.port/10)*10, mss.appName, mss.apiPath)})
+	}
+
+	openapi.convertStandartToRufs()
+	return openapi, nil
+}
+
+func (mss *MicroServiceServer) OnWsMessageFromClient(connection *websocket.Conn, tokenString string) {
 }
 
 func (mss *MicroServiceServer) Shutdown() {

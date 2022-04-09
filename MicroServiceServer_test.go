@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestLogin(t *testing.T) {
+func TestBase(t *testing.T) {
 	var service IMicroServiceServer = &RufsMicroService{}
 	service.Init(service)
 	serviceRunning := make(chan struct{})
@@ -16,31 +16,87 @@ func TestLogin(t *testing.T) {
 
 	go func() {
 		close(serviceRunning)
-		fmt.Print("Listen...")
+		log.Print("[TestBase] Listen...")
 
 		if err := service.Listen(); err != nil && err != http.ErrServerClosed {
-			fmt.Print("Unexpected server closed !")
+			log.Fatal("[TestBase] Unexpected server closed !")
 		}
 
-		fmt.Print("...Listen.")
+		log.Print("[TestBase] ...Listen.")
 		defer close(serviceDone)
 	}()
 
 	log.Printf("[TestLogin] wait serviceRunning")
 	<-serviceRunning
-	loginDataReq := User{Name: "admin", Password: "21232f297a57a5a743894a0e4a801fc3"}
+	time.Sleep(1000 * time.Millisecond)
+	loginDataReq := RufsUser{Name: "admin", Password: "21232f297a57a5a743894a0e4a801fc3"}
 	sc := ServerConnection{}
 	resp, err := sc.Login("http://localhost:8080", "", "/rest/login", loginDataReq.Name, loginDataReq.Password)
 
 	if err != nil || resp.StatusCode != http.StatusOK {
-		log.Fatalf("5 : %d : %s", resp.StatusCode, err)
+		log.Fatalf("[TestBase] Error in login request : %d : %s", resp.StatusCode, err)
 	}
 
-	log.Print(resp)
-	time.Sleep(2000 * time.Millisecond)
+	if role, ok := sc.loginResponse.Roles["rufsUser"]; ok {
+		log.Printf("[TestBase] Role mask of user %s : %b", sc.loginResponse.Name, role)
+	} else {
+		log.Fatalf("[TestBase] Missing Role mask of user %s", sc.loginResponse.Name)
+	}
+
+	listUser := []*RufsUser{}
+	resp, err = RufsRestRequest(&sc.httpRest, "/rest/rufs_user/query", http.MethodGet, nil, &listUser, &listUser)
+
+	if err != nil || resp.StatusCode != http.StatusOK {
+		log.Fatalf("[TestBase] error in users query request : %d : %s", resp.StatusCode, err)
+	}
+
+	if len(listUser) == 0 {
+		log.Fatal("[TestBase] retrieved users empty list")
+	}
+
+	var foundUser *RufsUser
+
+	for _, user := range listUser {
+		if user.Name == "admin" {
+			foundUser = user
+		}
+	}
+
+	if foundUser == nil {
+		log.Fatal("[TestBase] don't find user admin")
+	}
+
+	sc.lastMessage = NotifyMessage{}
+	foundUser.FullName = time.Now().String()
+	updatedUser := &RufsUser{}
+	query := map[string]any{"id": fmt.Sprint(foundUser.Id)}
+	resp, err = RufsRestRequest(&sc.httpRest, "/rest/rufs_user", http.MethodPut, query, foundUser, updatedUser)
+
+	if err != nil || resp.StatusCode != http.StatusOK || sc.lastMessage.Action != "notify" || updatedUser.FullName != foundUser.FullName {
+		log.Fatalf("[TestBase] error in update user request : %d : %s", resp.StatusCode, err)
+	}
+
+	sc.lastMessage = NotifyMessage{}
+	newUserOut := &RufsUser{Name: "tmp"}
+	newUserIn := &RufsUser{}
+	resp, err = RufsRestRequest(&sc.httpRest, "/rest/rufs_user", http.MethodPost, nil, newUserOut, newUserIn)
+
+	if err != nil || resp.StatusCode != http.StatusOK || sc.lastMessage.Action != "notify" || newUserOut.Name != newUserIn.Name || newUserIn.Id <= 0 {
+		log.Fatalf("[TestBase] error in update user request : %d : %s", resp.StatusCode, err)
+	}
+
+	sc.lastMessage = NotifyMessage{}
+	query = map[string]any{"id": newUserIn.Id}
+	resp, err = RufsRestRequest[RufsUser, RufsUser](&sc.httpRest, "/rest/rufs_user", http.MethodDelete, query, nil, nil)
+
+	if err != nil || resp.StatusCode != http.StatusOK || sc.lastMessage.Action != "delete" {
+		log.Fatalf("[TestBase] error in update user request : %d : %s", resp.StatusCode, err)
+	}
+
+	//	time.Sleep(2000 * time.Millisecond)
 	log.Printf("[TestLogin] service.Shutdown()")
 	service.Shutdown()
-	time.Sleep(2000 * time.Millisecond)
+	//	time.Sleep(2000 * time.Millisecond)
 	log.Printf("[TestLogin] wait serviceDone")
 	<-serviceDone
 	log.Printf("[TestLogin] serviceDone")
