@@ -268,11 +268,11 @@ func loadTable[T any](rms *RufsMicroService, name string, defaultRows []T) ([]T,
 	if list, err = EntityManagerFind[T](rms.entityManager, name); err != nil {
 		if list, err = FileDbAdapterLoad[T](rms.fileDbAdapter, name); err == nil {
 			if len(list) == 0 && len(defaultRows) > 0 {
-				FileDbAdapterStore(rms.fileDbAdapter, name, defaultRows)
+				err = FileDbAdapterStore(rms.fileDbAdapter, name, defaultRows)
 				list = defaultRows
 			}
 		} else {
-			FileDbAdapterStore(rms.fileDbAdapter, name, defaultRows)
+			err = FileDbAdapterStore(rms.fileDbAdapter, name, defaultRows)
 		}
 	}
 
