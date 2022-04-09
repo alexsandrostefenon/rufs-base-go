@@ -101,3 +101,12 @@ func TestBase(t *testing.T) {
 	<-serviceDone
 	log.Printf("[TestLogin] serviceDone")
 }
+
+func TestExternal(t *testing.T) {
+	service := &RufsMicroService{}
+	service.Init(service)
+
+	if err := service.Listen(); err != nil && err != http.ErrServerClosed {
+		log.Fatal("[TestBase] Unexpected server closed !")
+	}
+}
