@@ -99,7 +99,11 @@ func RufsRestRequest[T, U any](hrq *HttpRestRequest, path string, method string,
 			return nil, fmt.Errorf("[RufsRestRequest] broken message received : %s", err)
 		}
 
-		hrq.MessageError = string(bodyBytes)
+		if resp.StatusCode == http.StatusOK {
+			hrq.MessageWorking = string(bodyBytes)
+		} else {
+			hrq.MessageError = string(bodyBytes)
+		}
 	}
 
 	return resp, err

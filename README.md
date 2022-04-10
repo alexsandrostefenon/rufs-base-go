@@ -46,17 +46,26 @@ export PGPASSWORD=123456;
 psql rufs_base_development -c "DROP DATABASE IF EXISTS rufs_base;" &&
 psql rufs_base_development -c "CREATE DATABASE rufs_base;" &&
 
+Download browser webapp with :
+`
+git clone https://github.com/alexsandrostefenon/rufs-base-es6;
+git clone https://github.com/alexsandrostefenon/rufs-crud-es6;`
+`
+
 #Execute rufs-proxy to load and start microservices :
 
-PGHOST=localhost PGPORT=5432 PGUSER=development PGPASSWORD=123456 PGDATABASE=rufs_base go test -timeout 3600s -run ^TestExternal$ ./rufs-base-go
+cd ./rufs-base-go &&
+PGHOST=localhost PGPORT=5432 PGUSER=development PGPASSWORD=123456 PGDATABASE=rufs_base go test -timeout 3600s -run ^TestExternal$ -v -args --webapp ../rufs-base-es6/webapp ../rufs-crud-es6/webapp
 
 ## Web application
 
-In EcmaScript2017 compliance browser open url
+check if rest is active
 
 `
-curl -X 'GET' http://localhost:8080/rest/login -d '{}' -H 'Connection: close' -H 'content-type: undefined';
+curl -X 'GET' http://localhost:8080/rest/login -d '{"name": "admin", "password": "21232f297a57a5a743894a0e4a801fc3"}' -H 'Connection: close' -H 'content-type: application/json';
 `
+
+In EcmaScript2017 compliance browser open url
 
 For custom service configuration or user edition, use user 'admin' with password 'admin'.
 rufs-base-es6/README.

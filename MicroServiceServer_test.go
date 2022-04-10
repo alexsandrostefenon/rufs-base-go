@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestBase(t *testing.T) {
-	var service IMicroServiceServer = &RufsMicroService{}
+	service := &RufsMicroService{MicroServiceServer: MicroServiceServer{ServeStaticPaths: "../rufs-base-es6/webapp,../rufs-crud-es6/webapp"}}
+	//	var service IMicroServiceServer = &RufsMicroService{}
 	service.Init(service)
 	serviceRunning := make(chan struct{})
 	serviceDone := make(chan struct{})
@@ -93,6 +95,24 @@ func TestBase(t *testing.T) {
 		log.Fatalf("[TestBase] error in update user request : %d : %s", resp.StatusCode, err)
 	}
 
+	resp, err = RufsRestRequest[any, any](&sc.httpRest, "/manifest.json", http.MethodGet, nil, nil, nil)
+
+	if err != nil || resp.StatusCode != http.StatusOK || !strings.HasPrefix(sc.httpRest.MessageWorking, "{") {
+		log.Fatalf("[TestBase] error in get file 'index.html' : %d : %s", resp.StatusCode, err)
+	}
+
+	resp, err = RufsRestRequest[any, any](&sc.httpRest, "/es6/CaseConvert.js", http.MethodGet, nil, nil, nil)
+
+	if err != nil || resp.StatusCode != http.StatusOK || !strings.HasPrefix(sc.httpRest.MessageWorking, "class CaseConvert") {
+		log.Fatalf("[TestBase] error in get file 'index.html' : %d : %s", resp.StatusCode, err)
+	}
+
+	resp, err = RufsRestRequest[any, any](&sc.httpRest, "../README.md", http.MethodGet, nil, nil, nil)
+
+	if err == nil && (resp.StatusCode == http.StatusOK || strings.HasPrefix(sc.httpRest.MessageWorking, "#")) {
+		log.Fatalf("[TestBase] security fail, application is serving content out of limited scope : %s", sc.httpRest.MessageWorking)
+	}
+
 	//	time.Sleep(2000 * time.Millisecond)
 	log.Printf("[TestLogin] service.Shutdown()")
 	service.Shutdown()
@@ -103,7 +123,7 @@ func TestBase(t *testing.T) {
 }
 
 func TestExternal(t *testing.T) {
-	service := &RufsMicroService{}
+	service := &RufsMicroService{MicroServiceServer: MicroServiceServer{ServeStaticPaths: "../rufs-base-es6/webapp,../rufs-crud-es6/webapp"}}
 	service.Init(service)
 
 	if err := service.Listen(); err != nil && err != http.ErrServerClosed {

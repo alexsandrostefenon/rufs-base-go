@@ -7,7 +7,9 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -66,7 +68,7 @@ type MicroServiceServer struct {
 	addr                string
 	apiPath             string
 	security            string
-	serveStaticPaths    string
+	ServeStaticPaths    string
 	wsServerConnections map[string]*websocket.Conn
 	httpServer          *http.Server
 }
@@ -83,10 +85,10 @@ func (mss *MicroServiceServer) Init(imss IMicroServiceServer) {
 	mss.wsServerConnections = make(map[string]*websocket.Conn)
 	serveStaticPaths := path.Join(path.Dir(reflect.TypeOf(mss).PkgPath()), "webapp")
 
-	if mss.serveStaticPaths == "" {
-		mss.serveStaticPaths = serveStaticPaths
+	if mss.ServeStaticPaths == "" {
+		mss.ServeStaticPaths = serveStaticPaths
 	} else {
-		mss.serveStaticPaths += "," + serveStaticPaths
+		mss.ServeStaticPaths += "," + serveStaticPaths
 	}
 
 	if mss.port == 0 {
@@ -99,10 +101,27 @@ func (mss *MicroServiceServer) Init(imss IMicroServiceServer) {
 
 	mss.httpServer = &http.Server{Addr: fmt.Sprintf("%s:%d", mss.addr, mss.port)}
 
-	for _, path := range strings.Split(mss.serveStaticPaths, ",") {
-		log.Printf("[MicroServiceServer.Init] serving static folder : %s", http.Dir(path))
-		http.Handle("/", http.FileServer(http.Dir(path)))
-	}
+	http.HandleFunc("/", func(res http.ResponseWriter, req *http.Request) {
+		found := false
+
+		for _, folder := range strings.Split(mss.ServeStaticPaths, ",") {
+			absFolder, _ := filepath.Abs(folder)
+			fileName := path.Join(absFolder, req.RequestURI)
+
+			if fileInfo, err := os.Stat(fileName); err == nil && !fileInfo.IsDir() {
+				http.ServeFile(res, req, fileName)
+				found = true
+				log.Printf("[MicroServiceServer.Init] served file : %s : %s : %s", folder, req.RequestURI, fileName)
+				break
+			}
+		}
+
+		if !found {
+			log.Printf("[MicroServiceServer.HandleFunc] : searching file %s is not result", req.RequestURI)
+			res.WriteHeader(http.StatusBadRequest)
+			res.Write([]byte{})
+		}
+	})
 
 	http.HandleFunc("/"+mss.apiPath+"/", func(res http.ResponseWriter, req *http.Request) {
 		log.Printf("[MicroServiceServer.HandleFunc] : received http request %s from %s", req.RequestURI, req.RemoteAddr)
