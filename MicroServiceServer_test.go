@@ -4,15 +4,20 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestBase(t *testing.T) {
+	os.Remove("./openapi-base.json")
 	service := &RufsMicroService{MicroServiceServer: MicroServiceServer{ServeStaticPaths: "../rufs-base-es6/webapp,../rufs-crud-es6/webapp"}}
 	//	var service IMicroServiceServer = &RufsMicroService{}
-	service.Init(service)
+	if err := service.Init(service); err != nil {
+		log.Fatalf("[TestBase] Server.Init : %s", err)
+	}
+
 	serviceRunning := make(chan struct{})
 	serviceDone := make(chan struct{})
 
@@ -31,7 +36,7 @@ func TestBase(t *testing.T) {
 	log.Printf("[TestLogin] wait serviceRunning")
 	<-serviceRunning
 	time.Sleep(1000 * time.Millisecond)
-	loginDataReq := RufsUser{Name: "admin", Password: "21232f297a57a5a743894a0e4a801fc3"}
+	loginDataReq := RufsUser{RufsUserProteced: RufsUserProteced{Name: "admin"}, Password: "21232f297a57a5a743894a0e4a801fc3"}
 	sc := ServerConnection{}
 	resp, err := sc.Login("http://localhost:8080", "", "/rest/login", loginDataReq.Name, loginDataReq.Password)
 
@@ -43,6 +48,12 @@ func TestBase(t *testing.T) {
 		log.Printf("[TestBase] Role mask of user %s : %b", sc.loginResponse.Name, role)
 	} else {
 		log.Fatalf("[TestBase] Missing Role mask of user %s", sc.loginResponse.Name)
+	}
+
+	for _, schemaName := range []string{"rufsUser"} {
+		if _, ok := sc.loginResponse.Openapi.Components.Schemas[schemaName]; !ok {
+			log.Fatalf("[TestBase] Missing schema %s", schemaName)
+		}
 	}
 
 	listUser := []*RufsUser{}
@@ -79,7 +90,7 @@ func TestBase(t *testing.T) {
 	}
 
 	sc.lastMessage = NotifyMessage{}
-	newUserOut := &RufsUser{Name: "tmp"}
+	newUserOut := &RufsUser{RufsUserProteced: RufsUserProteced{Name: "tmp"}}
 	newUserIn := &RufsUser{}
 	resp, err = RufsRestRequest(&sc.httpRest, "/rest/rufs_user", http.MethodPost, nil, newUserOut, newUserIn)
 
@@ -95,16 +106,22 @@ func TestBase(t *testing.T) {
 		log.Fatalf("[TestBase] error in update user request : %d : %s", resp.StatusCode, err)
 	}
 
+	resp, err = RufsRestRequest[any, any](&sc.httpRest, "/", http.MethodGet, nil, nil, nil)
+
+	if err != nil || resp.StatusCode != http.StatusOK || !strings.HasPrefix(sc.httpRest.MessageWorking, "<!doctype html>") {
+		log.Fatalf("[TestBase] error in get file root : %d : %s", resp.StatusCode, err)
+	}
+
 	resp, err = RufsRestRequest[any, any](&sc.httpRest, "/manifest.json", http.MethodGet, nil, nil, nil)
 
 	if err != nil || resp.StatusCode != http.StatusOK || !strings.HasPrefix(sc.httpRest.MessageWorking, "{") {
-		log.Fatalf("[TestBase] error in get file 'index.html' : %d : %s", resp.StatusCode, err)
+		log.Fatalf("[TestBase] error in get file 'manifest.json' : %d : %s", resp.StatusCode, err)
 	}
 
 	resp, err = RufsRestRequest[any, any](&sc.httpRest, "/es6/CaseConvert.js", http.MethodGet, nil, nil, nil)
 
 	if err != nil || resp.StatusCode != http.StatusOK || !strings.HasPrefix(sc.httpRest.MessageWorking, "class CaseConvert") {
-		log.Fatalf("[TestBase] error in get file 'index.html' : %d : %s", resp.StatusCode, err)
+		log.Fatalf("[TestBase] error in get file '/es6/CaseConvert.js' : %d : %s", resp.StatusCode, err)
 	}
 
 	resp, err = RufsRestRequest[any, any](&sc.httpRest, "../README.md", http.MethodGet, nil, nil, nil)
@@ -124,7 +141,10 @@ func TestBase(t *testing.T) {
 
 func TestExternal(t *testing.T) {
 	service := &RufsMicroService{MicroServiceServer: MicroServiceServer{ServeStaticPaths: "../rufs-base-es6/webapp,../rufs-crud-es6/webapp"}}
-	service.Init(service)
+
+	if err := service.Init(service); err != nil {
+		log.Fatalf("[TestBase] Server.Init : %s", err)
+	}
 
 	if err := service.Listen(); err != nil && err != http.ErrServerClosed {
 		log.Fatal("[TestBase] Unexpected server closed !")

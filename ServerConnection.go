@@ -313,7 +313,8 @@ func (sc *ServerConnection) Login(server string, path string, loginPath string, 
 	}
 
 	sc.httpRest.Init(server)
-	resp, err = RufsRestRequest(&sc.httpRest, loginPath, http.MethodPost, nil, &RufsUser{Name: user, Password: password}, &sc.loginResponse)
+	loginRequestData := map[string]string{"user": user, "password": password}
+	resp, err = RufsRestRequest(&sc.httpRest, loginPath, http.MethodPost, nil, &loginRequestData, &sc.loginResponse)
 
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return resp, err

@@ -13,46 +13,54 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-type Role map[string]bool
-
 type RufsGroupOwner struct {
 	Id   int    `json:"id"`
 	Name string `json:"name"`
 }
 
 type Route struct {
-	Path       string
-	Controller string
+	Path       string `json:"path"`
+	Controller string `json:"controller"`
 }
 
-type RufsUser struct {
-	Id             int             `json:"id"`
-	Name           string          `json:"name"`
-	Password       string          `json:"password"`
-	RufsGroupOwner int             `json:"rufsGroupOwner"`
-	FullName       string          `json:"fullName"`
-	Routes         []Route         `json:"routes"`
-	Path           string          `json:"path"`
-	Menu           string          `json:"menu"`
-	Roles          map[string]Role `json:"roles"`
+type MenuItem struct {
+	Menu  string `json:"menu"`
+	Label string `json:"label"`
+	Path  string `json:"path"`
 }
 
-type TokenPayload struct {
-	Ip             string         `json:"ip"`
+type RufsUserProteced struct {
+	Id             int            `json:"id"`
 	Name           string         `json:"name"`
 	RufsGroupOwner int            `json:"rufsGroupOwner"`
 	Groups         []int          `json:"groups"`
 	Roles          map[string]int `json:"roles"`
 }
 
+type RufsUserPublic struct {
+	Routes []Route             `json:"routes"`
+	Menu   map[string]MenuItem `json:"menu"`
+	Path   string              `json:"path"`
+}
+
+type RufsUser struct {
+	RufsUserProteced
+	RufsUserPublic
+	FullName string `json:"fullName"`
+	Password string `json:"password"`
+}
+
+type TokenPayload struct {
+	RufsUserProteced
+	Ip string `json:"ip"`
+}
+
 type LoginResponse struct {
 	TokenPayload
-	JwtHeader string  `json:"jwtHeader"`
-	Title     string  `json:"title"`
-	Routes    []Route `json:"routes"`
-	Path      string  `json:"path"`
-	Menu      string  `json:"menu"`
-	Openapi   string  `json:"openapi"`
+	RufsUserPublic
+	JwtHeader string   `json:"tokenPayload"`
+	Title     string   `json:"title"`
+	Openapi   *OpenApi `json:"openapi"`
 }
 
 type RufsClaims struct {
@@ -67,6 +75,7 @@ type EntityManager interface {
 	Insert(tableName string, obj map[string]any) (map[string]any, error)
 	Update(tableName string, key map[string]any, obj map[string]any) (map[string]any, error)
 	DeleteOne(tableName string, key map[string]any) error
+	GetOpenApi(openapi *OpenApi, options map[string]any) (*OpenApi, error)
 }
 
 func EntityManagerFind[T any](em EntityManager, name string) ([]T, error) {
@@ -75,29 +84,25 @@ func EntityManagerFind[T any](em EntityManager, name string) ([]T, error) {
 
 type RufsMicroService struct {
 	MicroServiceServer
-	wsServerTokens map[string]*RufsClaims
-	//	checkRufsTables bool
-	migrationPath    string
-	dataStoreManager *DataStoreManager
-	entityManager    EntityManager
-	fileDbAdapter    *FileDbAdapter
-	listGroup        []interface{}
-	listGroupUser    []interface{}
-	listGroupOwner   []RufsGroupOwner
-	listUser         []RufsUser
+	wsServerTokens         map[string]*RufsClaims
+	checkRufsTables        bool
+	requestBodyContentType string
+	migrationPath          string
+	dataStoreManager       *DataStoreManager
+	entityManager          EntityManager
+	fileDbAdapter          *FileDbAdapter
+	openapi                *OpenApi
+	listGroup              []interface{}
+	listGroupUser          []interface{}
+	listGroupOwner         []RufsGroupOwner
+	listUser               []RufsUser
 }
 
-var defaultGroupOwnerAdmin []RufsGroupOwner = []RufsGroupOwner{{Name: "ADMIN"}}
-
-var defaultUserAdmin []RufsUser = []RufsUser{{
-	Id: 1, Name: "admin", RufsGroupOwner: 1, Password: "21232f297a57a5a743894a0e4a801fc3", Path: "rufs_user/search",
-	Roles:  map[string]Role{"rufsGroupOwner": {"get": true, "query": true, "post": true, "put": true, "delete": true}, "rufsUser": {"get": true, "query": true, "post": true, "put": true, "delete": true}, "rufsGroup": {"get": true, "query": true, "post": true, "put": true, "delete": true}, "rufsGroupUser": {"get": true, "query": true, "post": true, "put": true, "delete": true}},
-	Routes: []Route{{Path: "/app/rufs_service/:action", Controller: "OpenApiOperationObjectController"}, {Path: "/app/rufs_user/:action", Controller: "UserController"}},
-}}
-
-func (rms *RufsMicroService) Init(imss IMicroServiceServer) error {
+func (rms *RufsMicroService) Init(imss IMicroServiceServer) (err error) {
 	rms.MicroServiceServer.Init(imss)
 	rms.wsServerTokens = make(map[string]*RufsClaims)
+	rms.checkRufsTables = true
+	rms.requestBodyContentType = "application/json"
 
 	if rms.appName == "" {
 		rms.appName = "base"
@@ -107,19 +112,25 @@ func (rms *RufsMicroService) Init(imss IMicroServiceServer) error {
 		rms.migrationPath = `./rufs-${config.appName}-es6/sql`
 	}
 
-	if openapi, err := rms.LoadOpenApi(); err != nil {
+	if rms.openapi, err = rms.LoadOpenApi(); err != nil {
 		return err
 	} else {
+		if err := json.Unmarshal([]byte(rufsMicroServiceOpenApi), rms.openapi); err != nil {
+			UtilsShowJsonUnmarshalError(rufsMicroServiceOpenApi, err)
+			return err
+		}
+
+		rms.openapi.FillOpenApi(FillOpenApiOptions{schemas: rms.openapi.Components.Schemas, requestBodyContentType: rms.requestBodyContentType})
 		//		RequestFilter.updateRufsServices(rms.fileDbAdapter, openapi);
-		rms.fileDbAdapter = &FileDbAdapter{fileTables: make(map[string][]any), openapi: openapi}
+		rms.fileDbAdapter = &FileDbAdapter{fileTables: make(map[string][]any), openapi: rms.openapi}
 		rms.entityManager = rms.fileDbAdapter //new DbClientPostgres(rms.config.dbConfig, {missingPrimaryKeys: rms.config.dbMissingPrimaryKeys, missingForeignKeys: rms.config.dbMissingForeignKeys, aliasMap: rms.config.aliasMap});
-		rms.dataStoreManager = DataStoreManagerNew([]*Schema{}, openapi)
+		rms.dataStoreManager = DataStoreManagerNew([]*Schema{}, rms.openapi)
 	}
 
 	return nil
 }
 
-func (rms *RufsMicroService) authenticateUser(userName string, userPassword string, loginResponse *LoginResponse) (map[string]Role, error) {
+func (rms *RufsMicroService) authenticateUser(userName string, userPassword string, remoteAddr string) (*LoginResponse, error) {
 	time.Sleep(100 * time.Millisecond)
 	rms.loadRufsTables()
 	var user *RufsUser
@@ -135,8 +146,10 @@ func (rms *RufsMicroService) authenticateUser(userName string, userPassword stri
 		return nil, errors.New("don't match user and password")
 	}
 
+	loginResponse := &LoginResponse{TokenPayload: TokenPayload{Ip: remoteAddr, RufsUserProteced: RufsUserProteced{Name: userName}}}
 	loginResponse.Title = user.Name
 	loginResponse.RufsGroupOwner = user.RufsGroupOwner
+	loginResponse.Roles = user.Roles
 	loginResponse.Routes = user.Routes
 	loginResponse.Path = user.Path
 	loginResponse.Menu = user.Menu
@@ -149,42 +162,53 @@ func (rms *RufsMicroService) authenticateUser(userName string, userPassword stri
 
 		Filter.find(rms.listGroupUser, {"rufsUser": user.id}).forEach(item => loginResponse.tokenPayload.groups.push(item.rufsGroup));
 	*/
-	return user.Roles, nil
+	return loginResponse, nil
 }
 
 func (rms *RufsMicroService) OnRequest(req *http.Request, resource string, action string) Response {
 	if resource == "login" {
-		getRolesMask := func(roles map[string]Role) map[string]int {
-			ret := make(map[string]int)
+		/*
+			getRolesMask := func(roles map[string]Role) map[string]int {
+				ret := make(map[string]int)
 
-			for schemaName, role := range roles {
-				mask := 0
-				methods := []string{"get", "post", "patch", "put", "delete", "query"}
+				for schemaName, role := range roles {
+					mask := 0
+					methods := []string{"get", "post", "patch", "put", "delete", "query"}
 
-				for i, method := range methods {
-					if value, ok := role[method]; ok && value {
-						mask |= 1 << i
+					for i, method := range methods {
+						if value, ok := role[method]; ok && value {
+							mask |= 1 << i
+						}
 					}
+
+					ret[schemaName] = mask
 				}
 
-				ret[schemaName] = mask
+				return ret
 			}
-
-			return ret
-		}
-
-		var user RufsUser
-		err := json.NewDecoder(req.Body).Decode(&user)
+		*/
+		loginRequest := map[string]string{}
+		err := json.NewDecoder(req.Body).Decode(&loginRequest)
 
 		if err != nil {
 			return ResponseUnauthorized(fmt.Sprint(err))
 		}
 
-		loginResponse := LoginResponse{TokenPayload: TokenPayload{Ip: req.RemoteAddr, Name: user.Name}}
+		userName, ok := loginRequest["user"]
 
-		if roles, err := rms.authenticateUser(user.Name, user.Password, &loginResponse); err == nil {
-			if user.Name == "admin" {
-				//				loginResponse.Openapi = rms.entityManager.dataStoreManager.openapi
+		if !ok {
+			return ResponseBadRequest(fmt.Sprint("[RufsMicroService.OnRequest.login] missing field 'user'"))
+		}
+
+		password, ok := loginRequest["password"]
+
+		if !ok {
+			return ResponseBadRequest(fmt.Sprint("[RufsMicroService.OnRequest.login] missing field 'password'"))
+		}
+
+		if loginResponse, err := rms.authenticateUser(userName, password, req.RemoteAddr); err == nil {
+			if userName == "admin" {
+				loginResponse.Openapi = rms.dataStoreManager.openapi
 			} else {
 				return ResponseOk("TODO")
 				/*
@@ -194,7 +218,6 @@ func (rms *RufsMicroService) OnRequest(req *http.Request, resource string, actio
 				*/
 			}
 
-			loginResponse.Roles = getRolesMask(roles)
 			token := jwt.New(jwt.SigningMethodHS256)
 			token.Claims = &RufsClaims{&jwt.StandardClaims{ExpiresAt: time.Now().Add(time.Minute * 60 * 8).Unix()}, loginResponse.TokenPayload}
 			jwtSecret := os.Getenv("RUFS_JWT_SECRET")
@@ -311,6 +334,41 @@ func (rms *RufsMicroService) loadRufsTables() error {
 	return nil
 }
 
+func UtilsShowJsonUnmarshalError(str string, err error) {
+	if jsonError, ok := err.(*json.SyntaxError); ok {
+		lineAndCharacter := func(input string, offset int) (line int, character int, err error) {
+			lf := rune(0x0A)
+
+			if offset > len(input) || offset < 0 {
+				return 0, 0, fmt.Errorf("Couldn't find offset %d within the input.", offset)
+			}
+
+			// Humans tend to count from 1.
+			line = 1
+
+			for i, b := range input {
+				if b == lf {
+					line++
+					character = 0
+				}
+				character++
+				if i == offset {
+					break
+				}
+			}
+
+			return line, character, nil
+		}
+
+		line, character, lcErr := lineAndCharacter(str, int(jsonError.Offset))
+		fmt.Fprintf(os.Stderr, "Cannot parse JSON schema due to a syntax error at line %d, character %d: %v\n", line, character, jsonError.Error())
+
+		if lcErr != nil {
+			fmt.Fprintf(os.Stderr, "Couldn't find the line and character position of the error due to error %v\n", lcErr)
+		}
+	}
+}
+
 /*
 func (rms *RufsMicroService) expressEndPoint(req, res, next) {
 	let promise;
@@ -326,37 +384,49 @@ func (rms *RufsMicroService) expressEndPoint(req, res, next) {
 */
 func (rms *RufsMicroService) Listen() (err error) {
 	createRufsTables := func() error {
+		if !rms.checkRufsTables {
+			return nil
+		}
+
+		openapi, err := rms.entityManager.GetOpenApi(&OpenApi{}, map[string]any{})
+
+		if err != nil {
+			return err
+		}
+
+		tablesMissing := map[string]any{}
+		openapiRufs := &OpenApi{}
+
+		if err := json.Unmarshal([]byte(rufsMicroServiceOpenApi), openapiRufs); err != nil {
+			UtilsShowJsonUnmarshalError(rufsMicroServiceOpenApi, err)
+			return err
+		}
+
+		for name, schemaRufs := range openapiRufs.Components.Schemas {
+			if _, ok := openapi.Components.Schemas[name]; !ok {
+				tablesMissing[name] = schemaRufs
+			}
+		}
 		/*
-			if (rms.config.checkRufsTables != true)
-				return Promise.resolve();
+			const rufsServiceDbSync = new RufsServiceDbSync(rms.entityManager);
 
-			return rms.entityManager.getOpenApi().
-			then(openapi => {
-				let tablesMissing = new Map();
-				for (let name in RufsMicroService.openApiRufs.components.schemas) if (openapi.components.schemas[name] == undefined) tablesMissing.set(name, RufsMicroService.openApiRufs.components.schemas[name]);
-				const rufsServiceDbSync = new RufsServiceDbSync(rms.entityManager);
+			const createTable = iterator => {
+				let it = iterator.next();
+				if (it.done == true) return Promise.resolve();
+				let [name, schema] = it.value;
+				console.log(`${rms.constructor.name}.listen().createRufsTables().createTable(${name})`);
+				return rufsServiceDbSync.createTable(name, schema).then(() => createTable(iterator));
+			};
 
-				const createTable = iterator => {
-					let it = iterator.next();
-					if (it.done == true) return Promise.resolve();
-					let [name, schema] = it.value;
-					console.log(`${rms.constructor.name}.listen().createRufsTables().createTable(${name})`);
-					return rufsServiceDbSync.createTable(name, schema).then(() => createTable(iterator));
-				};
+			createTable(tablesMissing.entries());
 
-				return createTable(tablesMissing.entries());
-			}).
-			then(() => {
-				return Promise.resolve().
-				then(() => rms.entityManager.findOne("rufsGroupOwner", {name: "ADMIN"}).catch(() => rms.entityManager.insert("rufsGroupOwner", RufsMicroService.defaultGroupOwnerAdmin))).
-				then(() => rms.entityManager.findOne("rufsUser", {name: "admin"}).catch(() => rms.entityManager.insert("rufsUser", RufsMicroService.defaultUserAdmin))).
-				then(() => Promise.resolve());
-			});
+			then(() => rms.entityManager.findOne("rufsGroupOwner", {name: "ADMIN"}).catch(() => rms.entityManager.insert("rufsGroupOwner", RufsMicroService.defaultGroupOwnerAdmin))).
+			then(() => rms.entityManager.findOne("rufsUser", {name: "admin"}).catch(() => rms.entityManager.insert("rufsUser", RufsMicroService.defaultUserAdmin))).
 		*/
 		return nil
 	}
 
-	syncDb2OpenApi := func() (*OpenApi, error) {
+	syncDb2OpenApi := func() error {
 		/*
 			const execMigrations = () => {
 				if (fs.existsSync(rms.config.migrationPath) == false)
@@ -412,33 +482,38 @@ func (rms *RufsMicroService) Listen() (err error) {
 				});
 			};
 
-			return execMigrations().
-			then(() => rms.entityManager.getOpenApi({}, {requestBodyContentType: rms.config.requestBodyContentType})).
-			then(openApiDb => {
-				return rms.loadOpenApi().
-				then(openapi => {
-					console.log(`[${rms.constructor.name}.syncDb2OpenApi()] openapi after execMigrations`);
-					OpenApi.fillOpenApi(openApiDb, {schemas: RufsMicroService.openApiRufs.components.schemas, requestBodyContentType: rms.config.requestBodyContentType});
-
-					for (let [name, schemaDb] of Object.entries(openApiDb.components.schemas)) {
-						openApiDb.components.schemas[name] = OpenApi.mergeSchemas(openapi.components.schemas[name], schemaDb, false, name);
-					}
-
-					for (let name in openApiDb.components.schemas) {
-						if (openapi.components.schemas[name] == undefined) {
-							if (openApiDb.components.schemas[name] != null) openapi.components.schemas[name] = openApiDb.components.schemas[name];
-							if (openApiDb.paths["/" + name] != null) openapi.paths["/" + name] = openApiDb.paths["/" + name];
-							if (openApiDb.components.parameters[name] != null) openapi.components.parameters[name] = openApiDb.components.parameters[name];
-							if (openApiDb.components.requestBodies[name] != null) openapi.components.requestBodies[name] = openApiDb.components.requestBodies[name];
-							if (openApiDb.components.responses[name] != null) openapi.components.responses[name] = openApiDb.components.responses[name];
-						}
-					}
-
-					return rms.storeOpenApi(openapi);
-				});
-			});
+			execMigrations().
 		*/
-		return rms.LoadOpenApi()
+		openApiDb, _ := rms.entityManager.GetOpenApi(&OpenApi{}, map[string]any{"requestBodyContentType": rms.requestBodyContentType})
+		openApiDb.FillOpenApi(FillOpenApiOptions{schemas: rms.openapi.Components.Schemas, requestBodyContentType: rms.requestBodyContentType})
+
+		for name, schemaDb := range openApiDb.Components.Schemas {
+			openApiDb.Components.Schemas[name] = MergeSchemas(rms.openapi.Components.Schemas[name], schemaDb, false, name)
+		}
+
+		for name, dbSchema := range openApiDb.Components.Schemas {
+			if _, ok := rms.openapi.Components.Schemas[name]; !ok {
+				rms.openapi.Components.Schemas[name] = dbSchema
+
+				if value, ok := openApiDb.Paths["/"+name]; ok {
+					rms.openapi.Paths["/"+name] = value
+				}
+
+				if value, ok := openApiDb.Components.Parameters[name]; ok {
+					rms.openapi.Components.Parameters[name] = value
+				}
+
+				if value, ok := openApiDb.Components.RequestBodies[name]; ok {
+					rms.openapi.Components.RequestBodies[name] = value
+				}
+
+				if value, ok := openApiDb.Components.Responses[name]; ok {
+					rms.openapi.Components.Responses[name] = value
+				}
+			}
+		}
+
+		return rms.StoreOpenApi(rms.openapi, "")
 	}
 
 	//console.log(`[${rms.constructor.name}] starting ${rms.config.appName}...`);
@@ -450,11 +525,11 @@ func (rms *RufsMicroService) Listen() (err error) {
 		return err
 	}
 
-	if openapi, err := syncDb2OpenApi(); err != nil {
+	if err := syncDb2OpenApi(); err != nil {
 		return err
 	} else {
 		//console.log(`[${rms.constructor.name}.listen()] openapi after syncDb2OpenApi`);
-		if err := RequestFilterUpdateRufsServices(rms.entityManager, openapi); err != nil {
+		if err := RequestFilterUpdateRufsServices(rms.entityManager, rms.openapi); err != nil {
 			return err
 		}
 
@@ -465,3 +540,116 @@ func (rms *RufsMicroService) Listen() (err error) {
 		return nil
 	}
 }
+
+var rufsMicroServiceSchemaProperties string = `{
+	"x-required":{"type": "boolean", "x-orderIndex": 1, "x-sortType": "asc"},
+	"nullable":{"type": "boolean", "x-orderIndex": 2, "x-sortType": "asc"},
+	"type":{"options": ["string", "integer", "boolean", "number", "date-time", "date", "time"]},
+	"properties":{"type": "object", "properties": {}},
+	"items":{"type": "object", "properties": {}},
+	"maxLength":{"type": "integer"},
+	"format":{},
+	"pattern":{},
+	"enum": {},
+	"x-$ref":{},
+	"x-enumLabels": {},
+	"default":{},
+	"example":{},
+	"description":{}
+}`
+
+var rufsMicroServiceOpenApi string = `
+{
+	"components": {
+		"schemas": {
+			"rufsGroupOwner": {
+				"properties": {
+					"id":   {"type": "integer", "x-identityGeneration": "BY DEFAULT"},
+					"name": {"nullable": false, "unique": true}
+				},
+				"x-primaryKeys": ["id"]
+			},
+			"rufsUser": {
+				"properties": {
+					"id":             {"type": "integer", "x-identityGeneration": "BY DEFAULT"},
+					"rufsGroupOwner": {"type": "integer", "nullable": false, "x-$ref": "#/components/schemas/rufsGroupOwner"},
+					"name":           {"maxLength": 32, "nullable": false, "unique": true},
+					"password":       {"nullable": false},
+					"path":           {},
+					"roles":          {"type": "object", "properties": {}},
+					"routes":         {"type": "array", "items": {"properties": {}}},
+					"menu":           {"type": "object", "properties": {}}
+				},
+				"x-primaryKeys": ["id"],
+				"x-uniqueKeys":  {}
+			},
+			"rufsGroup": {
+				"properties": {
+					"id":   {"type": "integer", "x-identityGeneration": "BY DEFAULT"},
+					"name": {"nullable": false, "unique": true}
+				},
+				"x-primaryKeys": ["id"]
+			},
+			"rufsGroupUser": {
+				"properties": {
+					"rufsUser":  {"type": "integer", "nullable": false, "x-$ref": "#/components/schemas/rufsUser"},
+					"rufsGroup": {"type": "integer", "nullable": false, "x-$ref": "#/components/schemas/rufsGroup"}
+				},
+				"x-primaryKeys": ["rufsUser", "rufsGroup"],
+				"x-uniqueKeys":  {}
+			},
+			"rufsService": {
+				"properties": {
+					"operationId": {},
+					"path":        {},
+					"method":      {},
+					"parameter":   {"type": "object", "properties": ` + rufsMicroServiceSchemaProperties + `},
+					"requestBody": {"type": "object", "properties": ` + rufsMicroServiceSchemaProperties + `},
+					"response":    {"type": "object", "properties": ` + rufsMicroServiceSchemaProperties + `}
+				},
+				"x-primaryKeys": ["operationId"],
+				"x-uniqueKeys": {}
+			}
+		}
+	}
+}
+`
+var defaultGroupOwnerAdmin []RufsGroupOwner = []RufsGroupOwner{{Name: "ADMIN"}}
+
+var defaultUserAdmin []RufsUser = []RufsUser{{
+	RufsUserProteced: RufsUserProteced{
+		Id: 1, Name: "admin", RufsGroupOwner: 1,
+		Roles: map[string]int{
+			"rufsGroupOwner": 0xff,
+			"rufsUser":       0xff,
+			"rufsGroup":      0xff,
+			"rufsGroupUser":  0xff,
+		},
+	},
+	RufsUserPublic: RufsUserPublic{
+		Path: "rufs_user/search",
+		Routes: []Route{
+			{Path: "/app/rufs_service/:action", Controller: "OpenApiOperationObjectController"},
+			{Path: "/app/rufs_user/:action", Controller: "UserController"},
+		},
+	},
+	Password: "21232f297a57a5a743894a0e4a801fc3",
+}}
+
+/*
+func (rms *RufsMicroService) LoadOpenApi() (*OpenApi, error) {
+	openapi, err := rms.MicroServiceServer.LoadOpenApi()
+
+	if err != nil {
+		return nil, err
+	}
+
+	for name, schemaRufs := range rms.openapiRufs.Components.Schemas {
+		if _, ok := openapi.Components.Schemas[name]; !ok {
+			tablesMissing[name] = schemaRufs
+		}
+	}
+
+	return openapi, err
+}
+*/

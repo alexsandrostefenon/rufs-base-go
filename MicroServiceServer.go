@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -103,10 +104,15 @@ func (mss *MicroServiceServer) Init(imss IMicroServiceServer) {
 
 	http.HandleFunc("/", func(res http.ResponseWriter, req *http.Request) {
 		found := false
+		name := req.RequestURI
+
+		if strings.HasSuffix(name, "/") {
+			name = name + "index.html"
+		}
 
 		for _, folder := range strings.Split(mss.ServeStaticPaths, ",") {
 			absFolder, _ := filepath.Abs(folder)
-			fileName := path.Join(absFolder, req.RequestURI)
+			fileName := path.Join(absFolder, name)
 
 			if fileInfo, err := os.Stat(fileName); err == nil && !fileInfo.IsDir() {
 				http.ServeFile(res, req, fileName)
@@ -218,6 +224,20 @@ func (mss *MicroServiceServer) LoadOpenApi() (*OpenApi, error) {
 
 	openapi.convertStandartToRufs()
 	return openapi, nil
+}
+
+func (mss *MicroServiceServer) StoreOpenApi(openapi *OpenApi, fileName string) (err error) {
+	if fileName == "" {
+		fileName = fmt.Sprintf("openapi-%s.json", mss.appName)
+	}
+
+	if data, err := json.Marshal(openapi); err != nil {
+		log.Fatalf("[FileDbAdapterStore] : failt to marshal list before wrinting file %s : %s", fileName, err)
+	} else if err = ioutil.WriteFile(fileName, data, fs.ModePerm); err != nil {
+		log.Fatalf("[FileDbAdapterStore] : failt to write file %s : %s", fileName, err)
+	}
+
+	return err
 }
 
 func (mss *MicroServiceServer) OnWsMessageFromClient(connection *websocket.Conn, tokenString string) {

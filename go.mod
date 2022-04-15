@@ -7,3 +7,5 @@ require (
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/gorilla/websocket v1.5.0
 )
+
+require golang.org/x/exp v0.0.0-20220407100705-7b9b53b0aca4 // indirect

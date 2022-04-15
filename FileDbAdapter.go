@@ -184,3 +184,7 @@ func (fileDbAdapter *FileDbAdapter) DeleteOne(tableName string, key map[string]a
 	list = append(list[:pos], list[pos+1:])
 	return FileDbAdapterStore(fileDbAdapter, tableName, list)
 }
+
+func (fileDbAdapter *FileDbAdapter) GetOpenApi(openapi *OpenApi, options map[string]any) (*OpenApi, error) {
+	return fileDbAdapter.openapi, nil
+}

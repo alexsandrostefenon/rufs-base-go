@@ -1,10 +1,13 @@
 package rufsBase
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/exp/slices"
 )
 
 type OpenApiSecurity struct {
@@ -33,33 +36,35 @@ type OpenApiOperationObject struct {
 	OperationId string   `json:"operationId"`
 	Parameters  []OpenApiParameterObject
 	RequestBody OpenApiRequestBodyObject
-	Responses   map[string]OpenApiResponseObject `json:"responses"`
+	Responses   OpenApiResponseObject              `json:"responses"`
+	Security    []OpenApiSecurityRequirementObject `json:"security"`
 }
 
 type Schema struct {
-	Name               string             `json:"name"`
+	Name               string             `json:"name,omitempty"`
 	PrimaryKeys        []string           `json:"x-primaryKeys"`
-	UniqueKeys         any                `json:"x-uniqueKeys"`
-	ForeignKeys        any                `json:"x-foreignKeys"`
+	UniqueKeys         any                `json:"x-uniqueKeys,omitempty"`
+	ForeignKeys        any                `json:"x-foreignKeys,omitempty"`
 	Required           []string           `json:"required"`
-	Ref                string             `json:"x-$ref"`
+	Ref                string             `json:"x-$ref,omitempty"`
 	Type               string             `json:"type"`
-	Format             string             `json:"format"`
+	Description        string             `json:"description,omitempty"`
+	Format             string             `json:"format,omitempty"`
 	Nullable           bool               `json:"nullable"`
 	Essential          bool               `json:"x-required"`
-	Title              string             `json:"x-title"`
+	Title              string             `json:"x-title,omitempty"`
 	Hiden              bool               `json:"x-hiden"`
-	InternalName       string             `json:"x-internalName"`
-	Default            string             `json:"default"`
+	InternalName       string             `json:"x-internalName,omitempty"`
+	Default            string             `json:"default,omitempty"`
 	Enum               []string           `json:"enum"`
 	EnumLabels         []string           `json:"x-enumLabels"`
-	IdentityGeneration string             `json:"x-identityGeneration"`
+	IdentityGeneration string             `json:"x-identityGeneration,omitempty"`
 	Updatable          bool               `json:"x-updatable"`
-	Scale              int                `json:"x-scale"`
-	Precision          int                `json:"x-precision"`
-	MaxLength          int                `json:"maxLength"`
+	Scale              int                `json:"x-scale,omitempty"`
+	Precision          int                `json:"x-precision,omitempty"`
+	MaxLength          int                `json:"maxLength,omitempty"`
 	Properties         map[string]*Schema `json:"properties"`
-	Items              *Schema            `json:"items"`
+	Items              *Schema            `json:"items,omitempty"`
 }
 
 type OpenApiParameterObject struct {
@@ -76,13 +81,15 @@ type OpenApiMediaTypeObject struct {
 }
 
 type OpenApiRequestBodyObject struct {
-	Ref     string                             `json:"$ref"`
-	Content map[string]*OpenApiMediaTypeObject `json:"content"`
+	Required bool                               `json:"required"`
+	Ref      string                             `json:"$ref"`
+	Content  map[string]*OpenApiMediaTypeObject `json:"content"`
 }
 
 type OpenApiResponseObject struct {
-	Ref     string                             `json:"$ref"`
-	Content map[string]*OpenApiMediaTypeObject `json:"content"`
+	Description string                             `json:"description"`
+	Ref         string                             `json:"$ref"`
+	Content     map[string]*OpenApiMediaTypeObject `json:"content"`
 }
 
 type OpenApiSecurityScheme struct {
@@ -93,20 +100,29 @@ type OpenApiSecurityScheme struct {
 	BearerFormat string `json:"bearerFormat"`
 }
 
+type OpenApiSecurityRequirementObject map[string][]string
+
+type OpenApiTagObject struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type OpenApiPathItemObject map[string]OpenApiOperationObject
+
 type OpenApi struct {
-	Openapi    string                                       `json:"openapi"`
-	Info       OpenApiInfo                                  `json:"info"`
-	Servers    []*OpenApiServerComponent                    `json:"servers"`
-	Paths      map[string]map[string]OpenApiOperationObject `json:"paths"`
+	Openapi    string                           `json:"openapi"`
+	Info       OpenApiInfo                      `json:"info"`
+	Servers    []*OpenApiServerComponent        `json:"servers"`
+	Paths      map[string]OpenApiPathItemObject `json:"paths"`
 	Components struct {
 		Schemas         map[string]*Schema                  `json:"schemas"`
-		Parameters      map[string]OpenApiParameterObject   `json:"parameters"`
+		Parameters      map[string]*OpenApiParameterObject  `json:"parameters"`
 		RequestBodies   map[string]OpenApiRequestBodyObject `json:"requestBodies"`
 		Responses       map[string]OpenApiResponseObject    `json:"responses"`
 		SecuritySchemes map[string]OpenApiSecurityScheme    `json:"securitySchemes"`
-	}
-	Security []any `json:"security"`
-	Tags     []any `json:"tags"`
+	} `json:"components"`
+	Security []any              `json:"security"`
+	Tags     []OpenApiTagObject `json:"tags"`
 }
 
 func OpenApiCreate(openapi *OpenApi, security any) {
@@ -116,6 +132,11 @@ func OpenApiCreate(openapi *OpenApi, security any) {
 
 	openapi.Info = OpenApiInfo{Title: "rufs-base-es6 openapi genetator", Version: "0.0.0", Description: "CRUD operations", Contact: OpenApiContact{Name: "API Support", Url: "http://www.example.com/support", Email: "support@example.com"}}
 
+	openapi.Paths = map[string]OpenApiPathItemObject{}
+	openapi.Components.Schemas = map[string]*Schema{}
+	openapi.Components.Parameters = map[string]*OpenApiParameterObject{}
+	openapi.Components.RequestBodies = map[string]OpenApiRequestBodyObject{}
+	openapi.Components.Responses = map[string]OpenApiResponseObject{}
 	openapi.Components.SecuritySchemes = map[string]OpenApiSecurityScheme{
 		"jwt":    {Type: "http", Scheme: "bearer", BearerFormat: "JWT"},
 		"apiKey": {Type: "apiKey", In: "header", Name: "X-API-KEY"},
@@ -155,177 +176,255 @@ func OpenApiCreate(openapi *OpenApi, security any) {
 
 		if (dest.components.responses.Error == nil) dest.components.responses.Error = source.components.responses.Error;
 	}
+*/
+func MergeSchemas(schemaOld *Schema, schemaNew *Schema, keepOld bool, schemaName string) *Schema {
+	mergeArray := func(oldArray []string, newArray []string) []string {
+		if len(newArray) == 0 {
+			return oldArray
+		}
 
-	static mergeSchemas(schemaOld, schemaNew, keepOld, schemaName) {
-		const mergeArray = (oldArray, newArray) => {
-			if (newArray == nil) return oldArray;
-			if (oldArray == nil) return newArray;
-			for (const item of newArray) if (oldArray.includes(item) == false) oldArray.push(item);
-			return oldArray;
-		};
+		if len(oldArray) == 0 {
+			return newArray
+		}
 
-		schemaOld = schemaOld != nil && schemaOld != null ? schemaOld : {};
-//		console.log(`[${this.constructor.name}.updateJsonSchema(schemaName: ${schemaName}, schemaNew.properties: ${schemaNew.properties}, schemaOld.properties: ${schemaOld.properties})]`);
-		const jsonSchemaTypes = ["boolean", "string", "integer", "number", "date-time", "date", "object", "array"];
-		if (schemaNew.properties == nil) schemaNew.properties = {};
-		if (schemaOld.properties == nil) schemaOld.properties = {};
-		let newFields = schemaNew.properties || {};
-		let oldFields = schemaOld.properties || {};
-		if (typeof(newFields) == "string") newFields = Object.entries(JSON.parse(newFields));
-		if (typeof(oldFields) == "string") oldFields = JSON.parse(oldFields);
-		const newFieldsIterator = newFields instanceof Map == true ? newFields : Object.entries(newFields);
-		let jsonBuilder = {};
-		if (keepOld == true) jsonBuilder = oldFields;
+		for _, item := range newArray {
+			if slices.Index(oldArray, item) < 0 {
+				oldArray = append(oldArray, item)
+			}
+		}
 
-		for (let [fieldName, field] of newFieldsIterator) {
-			if (field == null) field = {};
-			if (field.type == nil) field.type = "string";
+		return oldArray
+	}
 
-			if (field.hiden == nil && field.identityGeneration != nil) {
-				field.hiden = true;
+	if schemaOld == nil {
+		schemaOld = &Schema{}
+	}
+	//		console.log(`[${this.constructor.name}.updateJsonSchema(schemaName: ${schemaName}, schemaNew.properties: ${schemaNew.properties}, schemaOld.properties: ${schemaOld.properties})]`);
+	jsonSchemaTypes := []string{"boolean", "string", "integer", "number", "date-time", "date", "object", "array"}
+	jsonBuilder := map[string]*Schema{}
+
+	if keepOld {
+		jsonBuilder = schemaOld.Properties
+	}
+
+	if schemaOld.Properties == nil {
+		schemaOld.Properties = map[string]*Schema{}
+	}
+
+	if schemaNew.Properties == nil {
+		schemaNew.Properties = map[string]*Schema{}
+	}
+
+	oldFields := schemaOld.Properties
+	newFields := schemaNew.Properties
+
+	for fieldName, field := range schemaNew.Properties {
+		if field.Type == "" {
+			field.Type = "string"
+		}
+
+		if field.IdentityGeneration != "" {
+			field.Hiden = true
+			//			field.ReadOnly = true
+		}
+
+		if slices.Index(jsonSchemaTypes, field.Type) < 0 {
+			//				console.error(`${schemaName} : ${fieldName} : Unknow type : ${field.type}`);
+			continue
+		}
+		// type (columnDefinition), readOnly, hiden, primaryKey, essential (insertable), updatable, default, length, precision, scale
+		jsonBuilderValue := &Schema{}
+		// registra conflitos dos valores antigos com os valores detectados do banco de dados
+		jsonBuilderValue.Type = field.Type
+		jsonBuilderValue.Format = field.Format
+
+		if field.Updatable == false {
+			jsonBuilderValue.Updatable = false
+		}
+
+		if field.MaxLength > 0 {
+			jsonBuilderValue.MaxLength = field.MaxLength
+		}
+
+		if field.Precision > 0 {
+			jsonBuilderValue.Precision = field.Precision
+		}
+
+		if field.Scale > 0 {
+			jsonBuilderValue.Scale = field.Scale
+		}
+
+		jsonBuilderValue.Nullable = field.Nullable
+		//
+		if field.Ref != "" {
+			jsonBuilderValue.Ref = field.Ref
+		}
+
+		if len(field.Properties) > 0 {
+			jsonBuilderValue.Properties = field.Properties
+		}
+
+		if field.Items != nil {
+			jsonBuilderValue.Items = field.Items
+		}
+
+		if field.InternalName != "" {
+			jsonBuilderValue.InternalName = field.InternalName
+		}
+
+		if field.Essential {
+			jsonBuilderValue.Essential = field.Essential
+		}
+
+		if field.Default != "" {
+			jsonBuilderValue.Default = field.Default
+		}
+		/*
+			if field.Unique {
+				jsonBuilderValue.Unique = field.Unique
+			}
+		*/
+		if field.IdentityGeneration != "" {
+			jsonBuilderValue.IdentityGeneration = field.IdentityGeneration
+		}
+		/*
+			if field.IsClonable == false {
+				jsonBuilderValue.IsClonable = field.IsClonable
+			}
+		*/
+		if field.Hiden {
+			jsonBuilderValue.Hiden = field.Hiden
+		}
+		/*
+			if field.ReadOnly {
+				jsonBuilderValue.ReadOnly = field.ReadOnly
+			}
+		*/
+		if field.Description != "" {
+			jsonBuilderValue.Description = field.Description
+		}
+		// oculta tipos incompatíveis
+		if jsonBuilderValue.Type != "string" {
+			jsonBuilderValue.MaxLength = 0
+		}
+
+		if jsonBuilderValue.Type != "number" {
+			jsonBuilderValue.Precision = 0
+			jsonBuilderValue.Scale = 0
+		}
+
+		if jsonBuilderValue.Type != "object" {
+			jsonBuilderValue.Properties = map[string]*Schema{}
+		}
+
+		if jsonBuilderValue.Type != "array" {
+			jsonBuilderValue.Items = nil
+		}
+		// habilita os campos PLENAMENTE não SQL
+		if field.Title != "" {
+			jsonBuilderValue.Title = field.Title
+		}
+		/*
+			if field.Document {
+				jsonBuilderValue.Document = field.Document
 			}
 
-			if (field.readOnly == nil && field.identityGeneration != nil) field.readOnly = true;
-
-			if (jsonSchemaTypes.indexOf(field.type) < 0) {
-				console.error(`${schemaName} : ${fieldName} : Unknow type : ${field.type}`);
-				continue;
+			if field.SortType != "" {
+				jsonBuilderValue.SortType = field.SortType
 			}
-			// type (columnDefinition), readOnly, hiden, primaryKey, essential (insertable), updatable, default, length, precision, scale
-			let jsonBuilderValue = {};
+
+			if field.OrderIndex > 0 {
+				jsonBuilderValue.OrderIndex = field.OrderIndex
+			}
+
+			if field.TableVisible == false {
+				jsonBuilderValue.TableVisible = field.TableVisible
+			}
+
+			if field.ShortDescription != "" {
+				jsonBuilderValue.ShortDescription = field.ShortDescription
+			}
+		*/
+		if len(field.Enum) > 0 {
+			jsonBuilderValue.Enum = mergeArray(jsonBuilderValue.Enum, field.Enum)
+		}
+
+		if len(field.EnumLabels) > 0 {
+			jsonBuilderValue.EnumLabels = mergeArray(jsonBuilderValue.EnumLabels, field.EnumLabels)
+		}
+		// exceções
+		if oldFields[fieldName] != nil {
+			fieldOriginal := oldFields[fieldName]
+			// copia do original os campos PLENAMENTE não SQL
+			jsonBuilderValue.Title = fieldOriginal.Title
+			/*
+				jsonBuilderValue.Document = fieldOriginal.Document
+				jsonBuilderValue.SortType = fieldOriginal.SortType
+				jsonBuilderValue.OrderIndex = fieldOriginal.OrderIndex
+				jsonBuilderValue.TableVisible = fieldOriginal.TableVisible
+				jsonBuilderValue.ShortDescription = fieldOriginal.ShortDescription
+			*/
+			jsonBuilderValue.Enum = mergeArray(jsonBuilderValue.Enum, fieldOriginal.Enum)
+			jsonBuilderValue.EnumLabels = mergeArray(jsonBuilderValue.EnumLabels, fieldOriginal.EnumLabels)
 			// registra conflitos dos valores antigos com os valores detectados do banco de dados
-			jsonBuilderValue["type"] = field.type;
-			jsonBuilderValue["format"] = field.format;
-
-			if (field.updatable == false) {
-				jsonBuilderValue["updatable"] = false;
-			}
-
-			if (field.maxLength > 0) {
-				jsonBuilderValue["maxLength"] = field.maxLength;
-			}
-
-			if (field.precision > 0) {
-				jsonBuilderValue["precision"] = field.precision;
-			}
-
-			if (field.scale > 0) {
-				jsonBuilderValue["scale"] = field.scale;
-			}
-
-			if (field.nullable == true) {
-				jsonBuilderValue["nullable"] = true;
-			} else {
-				jsonBuilderValue["nullable"] = field.nullable;
-			}
-			//
-			if (field.$ref != nil) {
-				jsonBuilderValue["$ref"] = field.$ref;
-			}
-
-			if (field.properties != nil) {
-				jsonBuilderValue["properties"] = field.properties;
-			}
-
-			if (field.items != nil) {
-				jsonBuilderValue["items"] = field.items;
-			}
-
-			if (field.internalName != null) jsonBuilderValue["internalName"] = field.internalName;
-			if (field.essential != nil) jsonBuilderValue["essential"] = field.essential;
-			if (field.default != nil) jsonBuilderValue["default"] = field.default;
-			if (field.unique != nil) jsonBuilderValue["unique"] = field.unique;
-			if (field.identityGeneration != nil) jsonBuilderValue["identityGeneration"] = field.identityGeneration;
-			if (field.isClonable != nil) jsonBuilderValue["isClonable"] = field.isClonable;
-			if (field.hiden != nil) jsonBuilderValue["hiden"] = field.hiden;
-			if (field.readOnly != nil) jsonBuilderValue["readOnly"] = field.readOnly;
-			if (field.description != nil) jsonBuilderValue["description"] = field.description;
-			// oculta tipos incompatíveis
-			if (jsonBuilderValue["type"] != "string") {
-				delete jsonBuilderValue["length"];
-			}
-
-			if (jsonBuilderValue["type"] != "number") {
-				delete jsonBuilderValue["precision"];
-				delete jsonBuilderValue["scale"];
-			}
-
-			if (jsonBuilderValue["type"] != "object") {
-				delete jsonBuilderValue["properties"];
-			}
-
-			if (jsonBuilderValue["type"] != "array") {
-				delete jsonBuilderValue["items"];
-			}
-			// habilita os campos PLENAMENTE não SQL
-			if (field.title != nil) jsonBuilderValue.title = field.title;
-			if (field.document != nil) jsonBuilderValue.document = field.document;
-			if (field.sortType != nil) jsonBuilderValue.sortType = field.sortType;
-			if (field.orderIndex != nil) jsonBuilderValue.orderIndex = field.orderIndex;
-			if (field.tableVisible != nil) jsonBuilderValue.tableVisible = field.tableVisible;
-			if (field.shortDescription != nil) jsonBuilderValue.shortDescription = field.shortDescription;
-
-			if (field.enum != nil) jsonBuilderValue.enum = mergeArray(jsonBuilderValue.enum, field.enum);
-			if (field.enumLabels != nil) jsonBuilderValue.enumLabels = mergeArray(jsonBuilderValue.enumLabels, field.enumLabels);
-			// exceções
-			if (oldFields[fieldName] != null) {
-				let fieldOriginal = oldFields[fieldName];
-				// copia do original os campos PLENAMENTE não SQL
-				jsonBuilderValue.title = fieldOriginal.title;
-				jsonBuilderValue.document = fieldOriginal.document;
-				jsonBuilderValue.sortType = fieldOriginal.sortType;
-				jsonBuilderValue.orderIndex = fieldOriginal.orderIndex;
-				jsonBuilderValue.tableVisible = fieldOriginal.tableVisible;
-				jsonBuilderValue.shortDescription = fieldOriginal.shortDescription;
-
-				jsonBuilderValue.enum = mergeArray(jsonBuilderValue.enum, fieldOriginal.enum);
-				jsonBuilderValue.enumLabels = mergeArray(jsonBuilderValue.enumLabels, fieldOriginal.enumLabels);
-				// registra conflitos dos valores antigos com os valores detectados do banco de dados
-				const exceptions = ["service", "isClonable", "hiden", "$ref"];
+			/*
+				exceptions := []string{"service", "isClonable", "hiden", "$ref"}
 
 				for (let subFieldName in fieldOriginal) {
 					if (exceptions.indexOf(subFieldName) < 0 && fieldOriginal[subFieldName] != jsonBuilderValue[subFieldName]) {
 						console.warn(`rufsServiceDbSync.generateJsonSchema() : table [${schemaName}], field [${fieldName}], property [${subFieldName}] conflict previous declared [${fieldOriginal[subFieldName]}] new [${jsonBuilderValue[subFieldName]}]\nold:\n`, fieldOriginal, "\nnew:\n", jsonBuilderValue);
 					}
 				}
-				// copia do original os campos PARCIALMENTE não SQL
-				if (fieldOriginal.isClonable != nil) jsonBuilderValue.isClonable = fieldOriginal.isClonable;
-				if (fieldOriginal.readOnly != nil) jsonBuilderValue.readOnly = fieldOriginal.readOnly;
-				if (fieldOriginal.hiden != nil) jsonBuilderValue.hiden = fieldOriginal.hiden;
-			}
-			// oculta os valores dafault
-			const defaultValues = {updatable: true, maxLength: 255, precision: 9, scale: 3, hiden: false, primaryKey: false, essential: false};
-
-			for (let subFieldName in defaultValues) {
-				if (jsonBuilderValue[subFieldName] == defaultValues[subFieldName]) {
-					delete jsonBuilderValue[subFieldName];
+			*/
+			// copia do original os campos PARCIALMENTE não SQL
+			/*
+				if fieldOriginal.IsClonable == false {
+					jsonBuilderValue.IsClonable = fieldOriginal.IsClonable
 				}
-			}
-			// troca todos os valores null por nil
-			for (let [key, value] of Object.entries(jsonBuilderValue)) {
-				if (value == null) delete jsonBuilderValue[key];
-			}
 
-			if (jsonBuilderValue["type"] == "array" && oldFields[fieldName] != null)
-				jsonBuilder[fieldName].items = this.mergeSchemas(oldFields[fieldName].items, newFields[fieldName].items, keepOld, schemaName);
-			else if (jsonBuilderValue["type"] == "object" && oldFields[fieldName] != null)
-				jsonBuilder[fieldName] = this.mergeSchemas(oldFields[fieldName], newFields[fieldName], keepOld, schemaName);
-			else
-				jsonBuilder[fieldName] = jsonBuilderValue;
+				if fieldOriginal.ReadOnly {
+					jsonBuilderValue.ReadOnly = fieldOriginal.ReadOnly
+				}
+			*/
+			if fieldOriginal.Hiden == false {
+				jsonBuilderValue.Hiden = fieldOriginal.Hiden
+			}
 		}
 
-		const schema = {};
-		schema.title = schemaOld.title || schemaNew.title;
-		schema.type = "object";
-		schema.required = [];
-		schema.primaryKeys = schemaNew.primaryKeys;
-		schema.uniqueKeys = schemaNew.uniqueKeys;
-		schema.foreignKeys = schemaNew.foreignKeys;
-		schema.properties = jsonBuilder;
-		for (const [fieldName, field] of Object.entries(schema.properties)) if (field.essential == true) schema.required.push(fieldName);
-		return schema;
+		if old, ok := oldFields[fieldName]; jsonBuilderValue.Type == "array" && ok {
+			jsonBuilder[fieldName] = &Schema{}
+			jsonBuilder[fieldName].Items = MergeSchemas(old.Items, newFields[fieldName].Items, keepOld, schemaName)
+		} else if jsonBuilderValue.Type == "object" && ok {
+			jsonBuilder[fieldName] = MergeSchemas(old, newFields[fieldName], keepOld, schemaName)
+		} else {
+			jsonBuilder[fieldName] = jsonBuilderValue
+		}
 	}
 
+	schema := &Schema{}
+
+	if schemaOld.Title != "" {
+		schema.Title = schemaOld.Title
+	} else {
+		schema.Title = schemaNew.Title
+	}
+
+	schema.Type = "object"
+	schema.Required = []string{}
+	schema.PrimaryKeys = schemaNew.PrimaryKeys
+	schema.UniqueKeys = schemaNew.UniqueKeys
+	schema.ForeignKeys = schemaNew.ForeignKeys
+	schema.Properties = jsonBuilder
+	for fieldName, field := range schema.Properties {
+		if field.Essential {
+			schema.Required = append(schema.Required, fieldName)
+		}
+	}
+
+	return schema
+}
+
+/*
 	static convertRufsToStandartSchema(schema, onlyClientUsage) {
 		const standartSchema = {};
 		standartSchema.type = schema.type || "object";
@@ -1030,107 +1129,163 @@ for (let obj of list) this.objToSchemaAdd(obj, schema);
 this.objToSchemaFinalize(schema, options);
 return schema;
 }
-//{"methods": ["get", "post"], "schemas": responseSchemas, parameterSchemas, requestSchemas}
-static fillOpenApi(openapi, options) {
-const forceGeneratePath = options.requestSchemas == null && options.parameterSchemas == null;
-if (openapi.paths == nil) openapi.paths = {};
-if (openapi.components == nil) openapi.components = {};
-if (openapi.components.schemas == nil) openapi.components.schemas = {};
-if (openapi.components.responses == nil) openapi.components.responses = {};
-if (openapi.components.parameters == nil) openapi.components.parameters = {};
-if (openapi.components.requestBodies == nil) openapi.components.requestBodies = {};
-if (openapi.tags == nil) openapi.tags = [];
-//
-if (options == nil) options = {};
-if (options.requestBodyContentType == nil) options.requestBodyContentType = "application/json"
-if (options.methods == nil) options.methods = ["get", "put", "post", "delete", "patch"];
-if (options.parameterSchemas == nil) options.parameterSchemas = {};
-if (options.requestSchemas == nil) options.requestSchemas = {};
-if (options.responseSchemas == nil) options.responseSchemas = {};
-if (options.security == nil) options.security = {};
-
-if (options.requestSchemas["login"] == nil) {
-	const requestSchema = {"type": "object", "properties": {"user": {type: "string"}, "password": {type: "string"}}, "required": ["user", "password"]};
-	const responseSchema = {"type": "object", "properties": {"tokenPayload": {type: "string"}}, "required": ["tokenPayload"]};
-	this.fillOpenApi(openapi, {methods: ["post"], requestSchemas: {"login": requestSchema}, schemas: {"login": responseSchema}, security: {"login": [{"basic": []}]}});
-}
-
-if (options.schemas == nil) {
-	options.schemas = openapi.components.schemas;
-} else {
-	for (let [schemaName, schema] of Object.entries(options.schemas)) {
-		openapi.components.schemas[schemaName] = schema;
-	}
-}
-// add components/responses with error schema
-const schemaError = {"type": "object", "properties": {"code": {"type": "integer"}, "description": {"type": "string"}}, "required": ["code", "description"]};
-openapi.components.responses["Error"] = {"description": "Error response", "content": {"application/json": {"schema": schemaError}}};
-
-for (const schemaName in options.schemas) {
-	const requestSchema = options.requestSchemas[schemaName];
-	const parameterSchema = options.parameterSchemas[schemaName];
-	if (options.forceGenerateSchemas != true && forceGeneratePath == false && requestSchema == null && parameterSchema == null) continue;
-	const schema = options.schemas[schemaName];
-	if (schema.primaryKeys == nil) schema.primaryKeys = [];
-	if (openapi.tags.find(item => item.name == schemaName) == nil) openapi.tags.push({"name": schemaName});
-	const referenceToSchema = {"$ref": `#/components/schemas/${schemaName}`};
-//			if (forceGeneratePath == false && requestSchema == null && parameterSchema == null) continue;
-	// fill components/requestBody with schemas
-	openapi.components.requestBodies[schemaName] = {"required": true, "content": {}};
-	openapi.components.requestBodies[schemaName].content[options.requestBodyContentType] = {"schema": options.requestSchemas[schemaName] || referenceToSchema};
-	// fill components/responses with schemas
-	openapi.components.responses[schemaName] = {"description": "response", "content": {}};
-	openapi.components.responses[schemaName].content[options.responseContentType] = {"schema": options.responseSchemas[schemaName] || referenceToSchema};
-	// fill components/parameters with primaryKeys
-	if (parameterSchema != null) {
-		openapi.components.parameters[schemaName] = {"name": "main", "in": "query", "required": true, "schema": OpenApi.convertRufsToStandartSchema(parameterSchema)};
-	} else if (schema.primaryKeys.length > 0) {
-		const schemaPrimaryKey = {"type": "object", "properties": {}, "required": schema.primaryKeys};
-
-		for (const primaryKey of schema.primaryKeys) {
-			schemaPrimaryKey.properties[primaryKey] = OpenApi.getPropertyFromSchema(schema, primaryKey);
-		}
-
-		openapi.components.parameters[schemaName] = {"name": "primaryKey", "in": "query", "required": true, "schema": OpenApi.convertRufsToStandartSchema(schemaPrimaryKey)};
-	}
-	// path
-	const pathName = `/${schemaName}`;
-	const pathItemObject = openapi.paths[pathName] = {};
-	const responsesRef = {"200": {"$ref": `#/components/responses/${schemaName}`}, "default": {"$ref": `#/components/responses/Error`}};
-	const parametersRef = [{"$ref": `#/components/parameters/${schemaName}`}];
-	const requestBodyRef = {"$ref": `#/components/requestBodies/${schemaName}`};
-
-	const methods =                ["get", "put", "post", "delete", "patch"];
-	const methodsHaveParameters =  [true , true , false , true    , true   ];
-	const methodsHaveRequestBody = [false, true , true  , false   , true   ];
-
-	for (let i = 0; i < methods.length; i++) {
-		const method = methods[i];
-		if (options.methods.includes(method) == false) continue;
-		const operationObject = {};
-
-		if (options.methods.length > 1) {
-			operationObject.operationId = `zzz_${method}_${schemaName}`;
-		} else {
-			operationObject.operationId = schemaName;
-		}
-
-		if (methodsHaveParameters[i] == true && openapi.components.parameters[schemaName] != nil) operationObject.parameters = parametersRef;
-		if (methodsHaveRequestBody[i] == true) operationObject.requestBody = requestBodyRef;
-		operationObject.responses = responsesRef;
-		operationObject.tags = [schemaName];
-		operationObject.description = `CRUD ${method} operation over ${schemaName}`;
-		if (options.security[schemaName] != nil) operationObject.security = options.security[schemaName];
-
-		if (methodsHaveParameters[i] == false || operationObject.parameters != nil) {
-			pathItemObject[method] = operationObject;
-		}
-	}
-}
-
-return openapi;
-}
 */
+type FillOpenApiOptions struct {
+	forceGenerateSchemas   bool
+	requestBodyContentType string
+	responseContentType    string
+	methods                []string
+	parameterSchemas       map[string]*Schema
+	requestSchemas         map[string]*Schema
+	responseSchemas        map[string]*Schema
+	schemas                map[string]*Schema
+	security               OpenApiSecurityRequirementObject
+}
+
+func (openapi *OpenApi) FillOpenApi(options FillOpenApiOptions) {
+	forceGeneratePath := options.requestSchemas == nil && options.parameterSchemas == nil
+
+	if options.requestBodyContentType == "" {
+		options.requestBodyContentType = "application/json"
+	}
+
+	if options.responseContentType == "" {
+		options.responseContentType = "application/json"
+	}
+
+	if len(options.methods) == 0 {
+		options.methods = []string{"get", "put", "post", "delete", "patch"}
+	}
+
+	if options.requestSchemas["login"] == nil {
+		requestSchema := &Schema{}
+		json.Unmarshal([]byte(`{"type": "object", "properties": {"user": {type: "string"}, "password": {type: "string"}}, "required": ["user", "password"]}`), requestSchema)
+		responseSchema := &Schema{}
+		json.Unmarshal([]byte(`{"type": "object", "properties": {"tokenPayload": {type: "string"}}, "required": ["tokenPayload"]}`), responseSchema)
+		loginOptions := FillOpenApiOptions{methods: []string{"post"}, requestSchemas: map[string]*Schema{"login": requestSchema}, schemas: map[string]*Schema{"login": responseSchema}}
+		openapi.FillOpenApi(loginOptions)
+	}
+
+	if len(options.schemas) == 0 {
+		options.schemas = openapi.Components.Schemas
+	} else {
+		if openapi.Components.Schemas == nil {
+			openapi.Components.Schemas = map[string]*Schema{}
+		}
+
+		for schemaName, schema := range options.schemas {
+			openapi.Components.Schemas[schemaName] = schema
+		}
+	}
+	// add components/responses with error schema
+	schemaError := &Schema{}
+	json.Unmarshal([]byte(`{"type": "object", "properties": {"code": {"type": "integer"}, "description": {"type": "string"}}, "required": ["code", "description"]}`), schemaError)
+
+	if openapi.Components.RequestBodies == nil {
+		openapi.Components.RequestBodies = map[string]OpenApiRequestBodyObject{}
+	}
+
+	if openapi.Components.Responses == nil {
+		openapi.Components.Responses = map[string]OpenApiResponseObject{}
+	}
+
+	openapi.Components.Responses["Error"] = OpenApiResponseObject{Description: "Error response", Content: map[string]*OpenApiMediaTypeObject{"application/json": {Schema: schemaError}}}
+
+	for schemaName, schema := range options.schemas {
+		parameterSchema := options.parameterSchemas[schemaName]
+		requestSchema := options.requestSchemas[schemaName]
+		responseSchema := options.responseSchemas[schemaName]
+
+		if !options.forceGenerateSchemas && !forceGeneratePath && requestSchema == nil && parameterSchema == nil {
+			continue
+		}
+
+		if slices.IndexFunc(openapi.Tags, func(item OpenApiTagObject) bool { return item.Name == schemaName }) < 0 {
+			openapi.Tags = append(openapi.Tags, OpenApiTagObject{Name: schemaName})
+		}
+
+		referenceToSchema := &Schema{Ref: fmt.Sprintf("#/components/schemas/%s", schemaName)}
+		// fill components/requestBody with schemas
+		openapi.Components.RequestBodies[schemaName] = OpenApiRequestBodyObject{Required: true, Content: map[string]*OpenApiMediaTypeObject{}}
+
+		if requestSchema != nil && requestSchema.Type != "" {
+			openapi.Components.RequestBodies[schemaName].Content[options.requestBodyContentType] = &OpenApiMediaTypeObject{Schema: requestSchema}
+		} else {
+			openapi.Components.RequestBodies[schemaName].Content[options.requestBodyContentType] = &OpenApiMediaTypeObject{Schema: referenceToSchema}
+		}
+		// fill components/responses with schemas
+		openapi.Components.Responses[schemaName] = OpenApiResponseObject{Description: "response"}
+
+		if requestSchema != nil && requestSchema.Type != "" {
+			openapi.Components.RequestBodies[schemaName].Content[options.responseContentType] = &OpenApiMediaTypeObject{Schema: responseSchema}
+		} else {
+			openapi.Components.RequestBodies[schemaName].Content[options.responseContentType] = &OpenApiMediaTypeObject{Schema: referenceToSchema}
+		}
+		// fill components/parameters with primaryKeys
+		if parameterSchema != nil {
+			openapi.Components.Parameters[schemaName] = &OpenApiParameterObject{Name: "main", In: "query", Required: true, Schema: parameterSchema}
+		} else if len(schema.PrimaryKeys) > 0 {
+			schemaPrimaryKey := Schema{Type: "object", Required: schema.PrimaryKeys, Properties: map[string]*Schema{}}
+
+			for _, primaryKey := range schema.PrimaryKeys {
+				schemaPrimaryKey.Properties[primaryKey] = schema.Properties[primaryKey]
+			}
+
+			parameterObject := &OpenApiParameterObject{Name: "primaryKey", In: "query", Required: true, Schema: &schemaPrimaryKey}
+			openapi.Components.Parameters[schemaName] = parameterObject
+		}
+		// path
+		pathName := fmt.Sprintf("/%s", schemaName)
+		pathItemObject := OpenApiPathItemObject{}
+
+		if openapi.Paths == nil {
+			openapi.Paths = map[string]OpenApiPathItemObject{}
+		}
+
+		openapi.Paths[pathName] = pathItemObject
+		mediaTypeOk := &OpenApiMediaTypeObject{Schema: &Schema{Ref: fmt.Sprintf("#/components/responses/%s", schemaName)}}
+		mediaTypeError := &OpenApiMediaTypeObject{Schema: &Schema{Ref: `#/components/responses/Error`}}
+		responsesRef := OpenApiResponseObject{Content: map[string]*OpenApiMediaTypeObject{"200": mediaTypeOk, "default": mediaTypeError}}
+		parametersRef := []OpenApiParameterObject{{Schema: &Schema{Ref: fmt.Sprintf(`#/components/parameters/%s`, schemaName)}}}
+		requestBodyRef := OpenApiRequestBodyObject{Ref: fmt.Sprintf(`#/components/requestBodies/%s`, schemaName)}
+
+		methods := []string{"get", "put", "post", "delete", "patch"}
+		methodsHaveParameters := []bool{true, true, false, true, true}
+		methodsHaveRequestBody := []bool{false, true, true, false, true}
+
+		for i, method := range methods {
+			if slices.Index(options.methods, method) < 0 {
+				continue
+			}
+
+			operationObject := OpenApiOperationObject{}
+
+			if len(options.methods) > 1 {
+				operationObject.OperationId = fmt.Sprintf("zzz_%s_%s", method, schemaName)
+			} else {
+				operationObject.OperationId = schemaName
+			}
+
+			if methodsHaveParameters[i] && openapi.Components.Parameters[schemaName] != nil {
+				operationObject.Parameters = parametersRef
+			}
+
+			if methodsHaveRequestBody[i] {
+				operationObject.RequestBody = requestBodyRef
+			}
+
+			operationObject.Responses = responsesRef
+			operationObject.Tags = []string{schemaName}
+			operationObject.Description = fmt.Sprintf(`CRUD %s operation over %s`, method, schemaName)
+			operationObject.Security = []OpenApiSecurityRequirementObject{options.security}
+
+			if !methodsHaveParameters[i] || operationObject.Parameters != nil {
+				pathItemObject[method] = operationObject
+			}
+		}
+	}
+}
+
 func OpenApiGetSchemaName(ref string) string {
 	ret := ref
 

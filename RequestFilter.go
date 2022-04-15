@@ -11,6 +11,7 @@ import (
 
 	"github.com/derekstavis/go-qs"
 	"github.com/golang-jwt/jwt"
+	"golang.org/x/exp/slices"
 )
 
 type RequestFilter struct {
@@ -18,7 +19,6 @@ type RequestFilter struct {
 	entityManager   EntityManager
 	req             *http.Request
 	tokenPayload    *TokenPayload
-	roles           map[string]Role
 	serviceName     string
 	uriPath         string
 	queryParameters map[string]any
@@ -57,18 +57,18 @@ func (rf *RequestFilter) checkObjectAccess(obj map[string]any) Response {
 	}
 
 	var response Response
-	userRufsGroupOwner, _ := rf.microService.dataStoreManager.openapi.getPrimaryKeyForeign("rufsUser", "rufsGroupOwner", obj)
+	userRufsGroupOwner := rf.tokenPayload.RufsGroupOwner
 	rufsGroupOwnerEntries, _ := rf.microService.dataStoreManager.openapi.getForeignKeyEntries(rf.serviceName, "#/components/schemas/rufsGroupOwner")
 
-	if userRufsGroupOwner != nil && userRufsGroupOwner.PrimaryKey["id"].(int) > 1 && len(rufsGroupOwnerEntries) > 0 {
+	if userRufsGroupOwner > 1 && len(rufsGroupOwnerEntries) > 0 {
 		objRufsGroupOwner, _ := rf.microService.dataStoreManager.openapi.getPrimaryKeyForeign(rf.serviceName, "rufsGroupOwner", obj)
 
 		if objRufsGroupOwner == nil {
-			obj["rufsGroupOwner"] = userRufsGroupOwner.PrimaryKey["id"]
-			objRufsGroupOwner.PrimaryKey["id"] = userRufsGroupOwner.PrimaryKey["id"]
+			obj["rufsGroupOwner"] = userRufsGroupOwner
+			objRufsGroupOwner.PrimaryKey["id"] = userRufsGroupOwner
 		}
 
-		if objRufsGroupOwner.PrimaryKey["id"] == userRufsGroupOwner.PrimaryKey["id"] {
+		if objRufsGroupOwner.PrimaryKey["id"] == userRufsGroupOwner {
 			rufsGroup, _ := rf.microService.dataStoreManager.openapi.getPrimaryKeyForeign(rf.serviceName, "rufsGroup", obj)
 
 			if rufsGroup != nil {
@@ -299,36 +299,25 @@ func (rf *RequestFilter) processQuery() Response {
 }
 
 func (rf *RequestFilter) CheckAuthorization(req *http.Request, serviceName string, uriPath string) (access bool, err error) {
-	getRolesUnMask := func(roles map[string]int) map[string]Role {
-		rolesBool := make(map[string]Role)
-
-		for schemaName, mask := range roles {
-			role := Role{}
-			methods := []string{"get", "post", "patch", "put", "delete", "query"}
-
-			for i, method := range methods {
-				role[method] = (mask & (1 << i)) != 0
-			}
-
-			rolesBool[schemaName] = role
+	checkMask := func(mask int, method string) (ret bool) {
+		if idx := slices.Index([]string{"get", "post", "patch", "put", "delete", "query"}, method); idx >= 0 {
+			ret = mask&(1<<idx) != 0
 		}
 
-		return rolesBool
+		return ret
 	}
 
 	if rf.tokenPayload, err = rf.extractTokenPayload(req.Header["Authorization"][0]); err != nil {
 		return false, err
 	}
 
-	rf.roles = getRolesUnMask(rf.tokenPayload.Roles)
-
-	if serviceAuth, ok := rf.roles[serviceName]; ok {
+	if mask, ok := rf.tokenPayload.Roles[serviceName]; ok {
 		if uriPath == "" {
 			uriPath = strings.ToLower(req.Method)
 		}
 
-		if value, ok := serviceAuth[uriPath]; ok && value {
-			access = value
+		if checkMask(mask, uriPath) {
+			access = true
 			rf.uriPath = uriPath
 			rf.req = req
 			rf.serviceName = serviceName
