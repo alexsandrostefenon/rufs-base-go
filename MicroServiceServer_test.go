@@ -84,6 +84,7 @@ func TestBase(t *testing.T) {
 	updatedUser := &RufsUser{}
 	query := map[string]any{"id": fmt.Sprint(foundUser.Id)}
 	resp, err = RufsRestRequest(&sc.httpRest, "/rest/rufs_user", http.MethodPut, query, foundUser, updatedUser)
+	time.Sleep(1000 * time.Millisecond)
 
 	if err != nil || resp.StatusCode != http.StatusOK || sc.lastMessage.Action != "notify" || updatedUser.FullName != foundUser.FullName {
 		log.Fatalf("[TestBase] error in update user request : %d : %s", resp.StatusCode, err)
@@ -93,6 +94,7 @@ func TestBase(t *testing.T) {
 	newUserOut := &RufsUser{RufsUserProteced: RufsUserProteced{Name: "tmp"}}
 	newUserIn := &RufsUser{}
 	resp, err = RufsRestRequest(&sc.httpRest, "/rest/rufs_user", http.MethodPost, nil, newUserOut, newUserIn)
+	time.Sleep(1000 * time.Millisecond)
 
 	if err != nil || resp.StatusCode != http.StatusOK || sc.lastMessage.Action != "notify" || newUserOut.Name != newUserIn.Name || newUserIn.Id <= 0 {
 		log.Fatalf("[TestBase] error in update user request : %d : %s", resp.StatusCode, err)
@@ -101,6 +103,7 @@ func TestBase(t *testing.T) {
 	sc.lastMessage = NotifyMessage{}
 	query = map[string]any{"id": newUserIn.Id}
 	resp, err = RufsRestRequest[RufsUser, RufsUser](&sc.httpRest, "/rest/rufs_user", http.MethodDelete, query, nil, nil)
+	time.Sleep(1000 * time.Millisecond)
 
 	if err != nil || resp.StatusCode != http.StatusOK || sc.lastMessage.Action != "delete" {
 		log.Fatalf("[TestBase] error in update user request : %d : %s", resp.StatusCode, err)
