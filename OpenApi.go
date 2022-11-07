@@ -13,139 +13,169 @@ import (
 type OpenApiSecurity struct {
 }
 
-type OpenApiContact struct {
-	Name  string `json:"name"`
-	Url   string `json:"url"`
-	Email string `json:"email"`
+type ContactObject struct {
+	Name  string `json:"name,omitempty"`
+	Url   string `json:"url,omitempty"`
+	Email string `json:"email,omitempty"`
 }
 
-type OpenApiInfo struct {
-	Title       string         `json:"name"`
-	Version     string         `json:"version"`
-	Description string         `json:"description"`
-	Contact     OpenApiContact `json:"contact"`
+type InfoObject struct {
+	Title       string        `json:"title"`
+	Version     string        `json:"version"`
+	Description string        `json:"description,omitempty"`
+	Contact     ContactObject `json:"contact,omitempty"`
 }
 
-type OpenApiServerComponent struct {
+type ServerObject struct {
 	Url string `json:"url"`
 }
 
-type OpenApiOperationObject struct {
-	Tags        []string `json:"tags"`
-	Description string   `json:"description"`
-	OperationId string   `json:"operationId"`
-	Parameters  []OpenApiParameterObject
-	RequestBody OpenApiRequestBodyObject
-	Responses   OpenApiResponseObject              `json:"responses"`
-	Security    []OpenApiSecurityRequirementObject `json:"security"`
+type ParameterObject struct {
+	Ref         string  `json:"$ref,omitempty"`
+	Name        string  `json:"name,omitempty"`
+	In          string  `json:"in,omitempty"`
+	Description string  `json:"description,omitempty"`
+	Required    bool    `json:"required,omitempty"`
+	Schema      *Schema `json:"schema,omitempty"`
+}
+
+type OperationObject struct {
+	Tags        []string                    `json:"tags,omitempty"`
+	Description string                      `json:"description,omitempty"`
+	OperationId string                      `json:"operationId,omitempty"`
+	Parameters  []ParameterObject           `json:"parameters,omitempty"`
+	RequestBody *RequestBodyObject          `json:"requestBody,omitempty"`
+	Responses   map[string]*ResponseObject  `json:"responses,omitempty"`
+	Security    []SecurityRequirementObject `json:"security,omitempty"`
+}
+
+type ForeignKey struct {
+	TableRef  string   `json:"tableRef"`
+	Fields    []string `json:"fields"`
+	FieldsRef []string `json:"fieldsRef"`
 }
 
 type Schema struct {
-	Name               string             `json:"name,omitempty"`
-	PrimaryKeys        []string           `json:"x-primaryKeys"`
-	UniqueKeys         any                `json:"x-uniqueKeys,omitempty"`
-	ForeignKeys        any                `json:"x-foreignKeys,omitempty"`
-	Required           []string           `json:"required"`
-	Ref                string             `json:"x-$ref,omitempty"`
-	Type               string             `json:"type"`
-	Description        string             `json:"description,omitempty"`
-	Format             string             `json:"format,omitempty"`
-	Nullable           bool               `json:"nullable"`
-	Essential          bool               `json:"x-required"`
-	Title              string             `json:"x-title,omitempty"`
-	Hiden              bool               `json:"x-hiden"`
-	InternalName       string             `json:"x-internalName,omitempty"`
-	Default            string             `json:"default,omitempty"`
-	Enum               []string           `json:"enum"`
-	EnumLabels         []string           `json:"x-enumLabels"`
-	IdentityGeneration string             `json:"x-identityGeneration,omitempty"`
-	Updatable          bool               `json:"x-updatable"`
-	Scale              int                `json:"x-scale,omitempty"`
-	Precision          int                `json:"x-precision,omitempty"`
-	MaxLength          int                `json:"maxLength,omitempty"`
-	Properties         map[string]*Schema `json:"properties"`
-	Items              *Schema            `json:"items,omitempty"`
+	Name               string                `json:"-"`
+	PrimaryKeys        []string              `json:"x-primaryKeys,omitempty"`
+	UniqueKeys         map[string][]string   `json:"x-uniqueKeys,omitempty"`
+	ForeignKeys        map[string]ForeignKey `json:"x-foreignKeys,omitempty"`
+	Required           []string              `json:"required,omitempty"`
+	Ref                string                `json:"$ref,omitempty"`
+	Type               string                `json:"type,omitempty"`
+	Format             string                `json:"format,omitempty"`
+	Description        string                `json:"description,omitempty"`
+	Nullable           bool                  `json:"nullable,omitempty"`
+	Essential          bool                  `json:"x-required,omitempty"`
+	Title              string                `json:"x-title,omitempty"`
+	Hiden              bool                  `json:"x-hiden,omitempty"`
+	InternalName       string                `json:"x-internalName,omitempty"`
+	Default            string                `json:"default,omitempty"`
+	Enum               []any                 `json:"enum,omitempty"`
+	EnumLabels         []string              `json:"x-enumLabels,omitempty"`
+	IdentityGeneration string                `json:"x-identityGeneration,omitempty"`
+	Updatable          bool                  `json:"x-updatable,omitempty"`
+	Scale              int                   `json:"x-scale,omitempty"`
+	Precision          int                   `json:"x-precision,omitempty"`
+	MaxLength          int                   `json:"maxLength,omitempty"`
+	Properties         map[string]*Schema    `json:"properties,omitempty"`
+	Items              *Schema               `json:"items,omitempty"`
 }
 
-type OpenApiParameterObject struct {
-	Ref         string  `json:"$ref"`
-	Name        string  `json:"name"`
-	In          string  `json:"in"`
-	Description string  `json:"description"`
-	Required    bool    `json:"required"`
-	Schema      *Schema `json:"schema"`
-}
-
-type OpenApiMediaTypeObject struct {
+type MediaTypeObject struct {
 	Schema *Schema `json:"schema"`
 }
 
-type OpenApiRequestBodyObject struct {
-	Required bool                               `json:"required"`
-	Ref      string                             `json:"$ref"`
-	Content  map[string]*OpenApiMediaTypeObject `json:"content"`
+type RequestBodyObject struct {
+	Required bool                        `json:"required,omitempty"`
+	Ref      string                      `json:"$ref,omitempty"`
+	Content  map[string]*MediaTypeObject `json:"content,omitempty"`
 }
 
-type OpenApiResponseObject struct {
-	Description string                             `json:"description"`
-	Ref         string                             `json:"$ref"`
-	Content     map[string]*OpenApiMediaTypeObject `json:"content"`
+type ResponseObject struct {
+	Description string                      `json:"description,omitempty"`
+	Ref         string                      `json:"$ref,omitempty"`
+	Content     map[string]*MediaTypeObject `json:"content,omitempty"`
 }
 
-type OpenApiSecurityScheme struct {
+type SecurityScheme struct {
 	Type         string `json:"type"`
-	Scheme       string `json:"scheme"`
-	Name         string `json:"name"`
-	In           string `json:"in"`
-	BearerFormat string `json:"bearerFormat"`
+	Scheme       string `json:"scheme,omitempty"`
+	Name         string `json:"name,omitempty"`
+	In           string `json:"in,omitempty"`
+	BearerFormat string `json:"bearerFormat,omitempty"`
 }
 
-type OpenApiSecurityRequirementObject map[string][]string
-
-type OpenApiTagObject struct {
+type TagObject struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
 
-type OpenApiPathItemObject map[string]OpenApiOperationObject
+type PathItemObject map[string]*OperationObject
+
+type SecurityRequirementObject map[string][]string
 
 type OpenApi struct {
-	Openapi    string                           `json:"openapi"`
-	Info       OpenApiInfo                      `json:"info"`
-	Servers    []*OpenApiServerComponent        `json:"servers"`
-	Paths      map[string]OpenApiPathItemObject `json:"paths"`
+	Openapi    string                    `json:"openapi"`
+	Info       *InfoObject               `json:"info"`
+	Servers    []*ServerObject           `json:"servers,omitempty"`
+	Paths      map[string]PathItemObject `json:"paths"`
 	Components struct {
-		Schemas         map[string]*Schema                  `json:"schemas"`
-		Parameters      map[string]*OpenApiParameterObject  `json:"parameters"`
-		RequestBodies   map[string]OpenApiRequestBodyObject `json:"requestBodies"`
-		Responses       map[string]OpenApiResponseObject    `json:"responses"`
-		SecuritySchemes map[string]OpenApiSecurityScheme    `json:"securitySchemes"`
-	} `json:"components"`
-	Security []any              `json:"security"`
-	Tags     []OpenApiTagObject `json:"tags"`
+		Schemas         map[string]*Schema           `json:"schemas,omitempty"`
+		Parameters      map[string]*ParameterObject  `json:"parameters,omitempty"`
+		RequestBodies   map[string]RequestBodyObject `json:"requestBodies,omitempty"`
+		Responses       map[string]ResponseObject    `json:"responses,omitempty"`
+		SecuritySchemes map[string]SecurityScheme    `json:"securitySchemes,omitempty"`
+	} `json:"components,omitempty"`
+	Security []SecurityRequirementObject `json:"security,omitempty"`
+	Tags     []TagObject                 `json:"tags,omitempty"`
 }
 
-func OpenApiCreate(openapi *OpenApi, security any) {
+func OpenApiCreate(openapi *OpenApi, security string) {
 	if openapi.Openapi == "" {
 		openapi.Openapi = "3.0.3"
 	}
 
-	openapi.Info = OpenApiInfo{Title: "rufs-base-es6 openapi genetator", Version: "0.0.0", Description: "CRUD operations", Contact: OpenApiContact{Name: "API Support", Url: "http://www.example.com/support", Email: "support@example.com"}}
+	if openapi.Info == nil {
+		openapi.Info = &InfoObject{Title: "rufs-base-es6 openapi genetator", Version: "0.0.0", Description: "CRUD operations", Contact: ContactObject{Name: "API Support", Url: "http://www.example.com/support", Email: "support@example.com"}}
+	}
 
-	openapi.Paths = map[string]OpenApiPathItemObject{}
-	openapi.Components.Schemas = map[string]*Schema{}
-	openapi.Components.Parameters = map[string]*OpenApiParameterObject{}
-	openapi.Components.RequestBodies = map[string]OpenApiRequestBodyObject{}
-	openapi.Components.Responses = map[string]OpenApiResponseObject{}
-	openapi.Components.SecuritySchemes = map[string]OpenApiSecurityScheme{
-		"jwt":    {Type: "http", Scheme: "bearer", BearerFormat: "JWT"},
-		"apiKey": {Type: "apiKey", In: "header", Name: "X-API-KEY"},
-		"basic":  {Type: "http", Scheme: "basic"},
+	if openapi.Paths == nil {
+		openapi.Paths = map[string]PathItemObject{}
+	}
+
+	if openapi.Components.Schemas == nil {
+		openapi.Components.Schemas = map[string]*Schema{}
+	}
+
+	if openapi.Components.Parameters == nil {
+		openapi.Components.Parameters = map[string]*ParameterObject{}
+	}
+
+	if openapi.Components.RequestBodies == nil {
+		openapi.Components.RequestBodies = map[string]RequestBodyObject{}
+	}
+
+	if openapi.Components.Responses == nil {
+		openapi.Components.Responses = map[string]ResponseObject{}
+	}
+
+	if openapi.Components.SecuritySchemes == nil {
+		openapi.Components.SecuritySchemes = map[string]SecurityScheme{
+			"jwt":    {Type: "http", Scheme: "bearer", BearerFormat: "JWT"},
+			"apiKey": {Type: "apiKey", In: "header", Name: "X-API-KEY"},
+			"basic":  {Type: "http", Scheme: "basic"},
+		}
+	}
+
+	if openapi.Security == nil && len(security) > 0 {
+		openapi.Security = []SecurityRequirementObject{{security: []string{}}}
 	}
 }
 
-/*
-	static copy(dest, source, roles) {
+func (source *OpenApi) copy(paths []string) *OpenApi {
+	dest := &OpenApi{}
+	/*
 		dest.openapi = source.openapi;
 		dest.info = source.info;
 		dest.servers = source.servers;
@@ -153,7 +183,7 @@ func OpenApiCreate(openapi *OpenApi, security any) {
 		dest.security = source.security;
 		dest.tags = source.tags;
 
-		for (let [schemaName, role] of Object.entries(roles)) {
+		for (let [schemaName, role] of Object.entries(paths)) {
 			if (source.components.schemas[schemaName] != nil) dest.components.schemas[schemaName] = source.components.schemas[schemaName];
 			if (source.components.responses[schemaName] != nil) dest.components.responses[schemaName] = source.components.responses[schemaName];
 			if (source.components.parameters[schemaName] != nil) dest.components.parameters[schemaName] = source.components.parameters[schemaName];
@@ -175,10 +205,13 @@ func OpenApiCreate(openapi *OpenApi, security any) {
 		}
 
 		if (dest.components.responses.Error == nil) dest.components.responses.Error = source.components.responses.Error;
-	}
-*/
+	*/
+	return dest
+}
+
+/*
 func MergeSchemas(schemaOld *Schema, schemaNew *Schema, keepOld bool, schemaName string) *Schema {
-	mergeArray := func(oldArray []string, newArray []string) []string {
+	mergeArrayString := func(oldArray []string, newArray []string) []string {
 		if len(newArray) == 0 {
 			return oldArray
 		}
@@ -187,9 +220,36 @@ func MergeSchemas(schemaOld *Schema, schemaNew *Schema, keepOld bool, schemaName
 			return newArray
 		}
 
-		for _, item := range newArray {
-			if slices.Index(oldArray, item) < 0 {
-				oldArray = append(oldArray, item)
+		for _, itemNew := range newArray {
+			if idx := slices.Index(oldArray, itemNew); idx < 0 {
+				oldArray = append(oldArray, itemNew)
+			}
+		}
+
+		return oldArray
+	}
+
+	mergeArray := func(oldArray []any, newArray []any) []any {
+		if len(newArray) == 0 {
+			return oldArray
+		}
+
+		if len(oldArray) == 0 {
+			return newArray
+		}
+
+		for _, itemNew := range newArray {
+			found := false
+
+			for _, itemOld := range oldArray {
+				if itemOld == itemNew {
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				oldArray = append(oldArray, itemNew)
 			}
 		}
 
@@ -279,27 +339,21 @@ func MergeSchemas(schemaOld *Schema, schemaNew *Schema, keepOld bool, schemaName
 		if field.Default != "" {
 			jsonBuilderValue.Default = field.Default
 		}
-		/*
-			if field.Unique {
-				jsonBuilderValue.Unique = field.Unique
-			}
-		*/
+		// if field.Unique {
+		// 	jsonBuilderValue.Unique = field.Unique
+		// }
 		if field.IdentityGeneration != "" {
 			jsonBuilderValue.IdentityGeneration = field.IdentityGeneration
 		}
-		/*
-			if field.IsClonable == false {
-				jsonBuilderValue.IsClonable = field.IsClonable
-			}
-		*/
+		// if field.IsClonable == false {
+		// 	jsonBuilderValue.IsClonable = field.IsClonable
+		// }
 		if field.Hiden {
 			jsonBuilderValue.Hiden = field.Hiden
 		}
-		/*
-			if field.ReadOnly {
-				jsonBuilderValue.ReadOnly = field.ReadOnly
-			}
-		*/
+		// if field.ReadOnly {
+		// 	jsonBuilderValue.ReadOnly = field.ReadOnly
+		// }
 		if field.Description != "" {
 			jsonBuilderValue.Description = field.Description
 		}
@@ -324,68 +378,60 @@ func MergeSchemas(schemaOld *Schema, schemaNew *Schema, keepOld bool, schemaName
 		if field.Title != "" {
 			jsonBuilderValue.Title = field.Title
 		}
-		/*
-			if field.Document {
-				jsonBuilderValue.Document = field.Document
-			}
+		// if field.Document {
+		// 	jsonBuilderValue.Document = field.Document
+		// }
 
-			if field.SortType != "" {
-				jsonBuilderValue.SortType = field.SortType
-			}
+		// if field.SortType != "" {
+		// 	jsonBuilderValue.SortType = field.SortType
+		// }
 
-			if field.OrderIndex > 0 {
-				jsonBuilderValue.OrderIndex = field.OrderIndex
-			}
+		// if field.OrderIndex > 0 {
+		// 	jsonBuilderValue.OrderIndex = field.OrderIndex
+		// }
 
-			if field.TableVisible == false {
-				jsonBuilderValue.TableVisible = field.TableVisible
-			}
+		// if field.TableVisible == false {
+		// 	jsonBuilderValue.TableVisible = field.TableVisible
+		// }
 
-			if field.ShortDescription != "" {
-				jsonBuilderValue.ShortDescription = field.ShortDescription
-			}
-		*/
+		// if field.ShortDescription != "" {
+		// 	jsonBuilderValue.ShortDescription = field.ShortDescription
+		// }
 		if len(field.Enum) > 0 {
 			jsonBuilderValue.Enum = mergeArray(jsonBuilderValue.Enum, field.Enum)
 		}
 
 		if len(field.EnumLabels) > 0 {
-			jsonBuilderValue.EnumLabels = mergeArray(jsonBuilderValue.EnumLabels, field.EnumLabels)
+			jsonBuilderValue.EnumLabels = mergeArrayString(jsonBuilderValue.EnumLabels, field.EnumLabels)
 		}
 		// exceções
 		if oldFields[fieldName] != nil {
 			fieldOriginal := oldFields[fieldName]
 			// copia do original os campos PLENAMENTE não SQL
 			jsonBuilderValue.Title = fieldOriginal.Title
-			/*
-				jsonBuilderValue.Document = fieldOriginal.Document
-				jsonBuilderValue.SortType = fieldOriginal.SortType
-				jsonBuilderValue.OrderIndex = fieldOriginal.OrderIndex
-				jsonBuilderValue.TableVisible = fieldOriginal.TableVisible
-				jsonBuilderValue.ShortDescription = fieldOriginal.ShortDescription
-			*/
+			// jsonBuilderValue.Document = fieldOriginal.Document
+			// jsonBuilderValue.SortType = fieldOriginal.SortType
+			// jsonBuilderValue.OrderIndex = fieldOriginal.OrderIndex
+			// jsonBuilderValue.TableVisible = fieldOriginal.TableVisible
+			// jsonBuilderValue.ShortDescription = fieldOriginal.ShortDescription
 			jsonBuilderValue.Enum = mergeArray(jsonBuilderValue.Enum, fieldOriginal.Enum)
-			jsonBuilderValue.EnumLabels = mergeArray(jsonBuilderValue.EnumLabels, fieldOriginal.EnumLabels)
+			jsonBuilderValue.EnumLabels = mergeArrayString(jsonBuilderValue.EnumLabels, fieldOriginal.EnumLabels)
 			// registra conflitos dos valores antigos com os valores detectados do banco de dados
-			/*
-				exceptions := []string{"service", "isClonable", "hiden", "$ref"}
+			// exceptions := []string{"service", "isClonable", "hiden", "$ref"}
 
-				for (let subFieldName in fieldOriginal) {
-					if (exceptions.indexOf(subFieldName) < 0 && fieldOriginal[subFieldName] != jsonBuilderValue[subFieldName]) {
-						console.warn(`rufsServiceDbSync.generateJsonSchema() : table [${schemaName}], field [${fieldName}], property [${subFieldName}] conflict previous declared [${fieldOriginal[subFieldName]}] new [${jsonBuilderValue[subFieldName]}]\nold:\n`, fieldOriginal, "\nnew:\n", jsonBuilderValue);
-					}
-				}
-			*/
+			// for (let subFieldName in fieldOriginal) {
+			// 	if (exceptions.indexOf(subFieldName) < 0 && fieldOriginal[subFieldName] != jsonBuilderValue[subFieldName]) {
+			// 		console.warn(`generateJsonSchema() : table [${schemaName}], field [${fieldName}], property [${subFieldName}] conflict previous declared [${fieldOriginal[subFieldName]}] new [${jsonBuilderValue[subFieldName]}]\nold:\n`, fieldOriginal, "\nnew:\n", jsonBuilderValue);
+			// 	}
+			// }
 			// copia do original os campos PARCIALMENTE não SQL
-			/*
-				if fieldOriginal.IsClonable == false {
-					jsonBuilderValue.IsClonable = fieldOriginal.IsClonable
-				}
+			// if fieldOriginal.IsClonable == false {
+			// 	jsonBuilderValue.IsClonable = fieldOriginal.IsClonable
+			// }
 
-				if fieldOriginal.ReadOnly {
-					jsonBuilderValue.ReadOnly = fieldOriginal.ReadOnly
-				}
-			*/
+			// if fieldOriginal.ReadOnly {
+			// 	jsonBuilderValue.ReadOnly = fieldOriginal.ReadOnly
+			// }
 			if fieldOriginal.Hiden == false {
 				jsonBuilderValue.Hiden = fieldOriginal.Hiden
 			}
@@ -423,7 +469,7 @@ func MergeSchemas(schemaOld *Schema, schemaNew *Schema, keepOld bool, schemaName
 
 	return schema
 }
-
+*/
 /*
 	static convertRufsToStandartSchema(schema, onlyClientUsage) {
 		const standartSchema = {};
@@ -641,10 +687,16 @@ func (openapi *OpenApi) copyValue(field *Schema, value any) (ret any, err error)
 		}
 	}
 
-	if field.Type == "" || field.Type == "string" {
+	dataType := field.Type
+
+	if field.Format != "" {
+		dataType = field.Format
+	}
+
+	if dataType == "" || dataType == "string" {
 		switch value.(type) {
 		case string:
-			if value != "" && field.MaxLength > 0 {
+			if len(value.(string)) > field.MaxLength {
 				ret = value.(string)[:field.MaxLength]
 			} else {
 				ret = value
@@ -652,28 +704,28 @@ func (openapi *OpenApi) copyValue(field *Schema, value any) (ret any, err error)
 		default:
 			ret = value
 		}
-	} else if field.Type == "integer" {
+	} else if dataType == "integer" {
 		switch value.(type) {
 		case string:
 			ret, err = strconv.Atoi(value.(string))
 		default:
 			ret = value
 		}
-	} else if field.Type == "number" {
+	} else if dataType == "number" {
 		switch value.(type) {
 		case string:
 			ret, err = strconv.ParseFloat(value.(string), 64)
 		default:
 			ret = value
 		}
-	} else if field.Type == "boolean" {
+	} else if dataType == "boolean" {
 		switch value.(type) {
 		case bool:
 			ret = value.(bool)
 		case string:
 			ret = (value == "true")
 		}
-	} else if field.Type == "date-time" {
+	} else if dataType == "date-time" {
 		switch value.(type) {
 		case string:
 			if value != "" && field.MaxLength > 0 {
@@ -684,7 +736,7 @@ func (openapi *OpenApi) copyValue(field *Schema, value any) (ret any, err error)
 		default:
 			ret, _ = time.Parse(time.RFC3339, value.(string))
 		}
-	} else if field.Type == "date" {
+	} else if dataType == "date" {
 		switch value.(type) {
 		case string:
 			if value != "" && field.MaxLength > 0 {
@@ -816,7 +868,7 @@ func (openapi *OpenApi) getValueFromSchema(schema *Schema, propertyName string, 
 	return ret
 }
 
-func (openapi *OpenApi) copyFields(schema *Schema, dataIn map[string]any, ignorenil bool, ignoreHiden bool) (map[string]any, error) {
+func (openapi *OpenApi) copyFields(schema *Schema, dataIn map[string]any, ignorenil bool, ignoreHiden bool, onlyPrimaryKeys bool) (map[string]any, error) {
 	ret := map[string]any{}
 	var err error
 
@@ -826,6 +878,10 @@ func (openapi *OpenApi) copyFields(schema *Schema, dataIn map[string]any, ignore
 		}
 
 		if _, ok := dataIn[fieldName]; !ok && ignorenil {
+			continue
+		}
+
+		if onlyPrimaryKeys && slices.Index(schema.PrimaryKeys, fieldName) < 0 {
 			continue
 		}
 
@@ -1138,11 +1194,13 @@ type FillOpenApiOptions struct {
 	parameterSchemas       map[string]*Schema
 	requestSchemas         map[string]*Schema
 	responseSchemas        map[string]*Schema
+	disableResponseList    map[string]bool
 	schemas                map[string]*Schema
-	security               OpenApiSecurityRequirementObject
+	security               SecurityRequirementObject
 }
 
 func (openapi *OpenApi) FillOpenApi(options FillOpenApiOptions) {
+	OpenApiCreate(openapi, "jwt")
 	forceGeneratePath := options.requestSchemas == nil && options.parameterSchemas == nil
 
 	if options.requestBodyContentType == "" {
@@ -1169,10 +1227,6 @@ func (openapi *OpenApi) FillOpenApi(options FillOpenApiOptions) {
 	if len(options.schemas) == 0 {
 		options.schemas = openapi.Components.Schemas
 	} else {
-		if openapi.Components.Schemas == nil {
-			openapi.Components.Schemas = map[string]*Schema{}
-		}
-
 		for schemaName, schema := range options.schemas {
 			openapi.Components.Schemas[schemaName] = schema
 		}
@@ -1181,49 +1235,46 @@ func (openapi *OpenApi) FillOpenApi(options FillOpenApiOptions) {
 	schemaError := &Schema{}
 	json.Unmarshal([]byte(`{"type": "object", "properties": {"code": {"type": "integer"}, "description": {"type": "string"}}, "required": ["code", "description"]}`), schemaError)
 
-	if openapi.Components.RequestBodies == nil {
-		openapi.Components.RequestBodies = map[string]OpenApiRequestBodyObject{}
-	}
-
-	if openapi.Components.Responses == nil {
-		openapi.Components.Responses = map[string]OpenApiResponseObject{}
-	}
-
-	openapi.Components.Responses["Error"] = OpenApiResponseObject{Description: "Error response", Content: map[string]*OpenApiMediaTypeObject{"application/json": {Schema: schemaError}}}
+	openapi.Components.Responses["Error"] = ResponseObject{Description: "Error response", Content: map[string]*MediaTypeObject{"application/json": {Schema: schemaError}}}
 
 	for schemaName, schema := range options.schemas {
 		parameterSchema := options.parameterSchemas[schemaName]
 		requestSchema := options.requestSchemas[schemaName]
 		responseSchema := options.responseSchemas[schemaName]
+		disableResponseList := options.disableResponseList[schemaName]
 
 		if !options.forceGenerateSchemas && !forceGeneratePath && requestSchema == nil && parameterSchema == nil {
 			continue
 		}
 
-		if slices.IndexFunc(openapi.Tags, func(item OpenApiTagObject) bool { return item.Name == schemaName }) < 0 {
-			openapi.Tags = append(openapi.Tags, OpenApiTagObject{Name: schemaName})
+		if slices.IndexFunc(openapi.Tags, func(item TagObject) bool { return item.Name == schemaName }) < 0 {
+			openapi.Tags = append(openapi.Tags, TagObject{Name: schemaName})
 		}
 
 		referenceToSchema := &Schema{Ref: fmt.Sprintf("#/components/schemas/%s", schemaName)}
 		// fill components/requestBody with schemas
-		openapi.Components.RequestBodies[schemaName] = OpenApiRequestBodyObject{Required: true, Content: map[string]*OpenApiMediaTypeObject{}}
+		openapi.Components.RequestBodies[schemaName] = RequestBodyObject{Required: true, Content: map[string]*MediaTypeObject{}}
 
 		if requestSchema != nil && requestSchema.Type != "" {
-			openapi.Components.RequestBodies[schemaName].Content[options.requestBodyContentType] = &OpenApiMediaTypeObject{Schema: requestSchema}
+			openapi.Components.RequestBodies[schemaName].Content[options.requestBodyContentType] = &MediaTypeObject{Schema: requestSchema}
 		} else {
-			openapi.Components.RequestBodies[schemaName].Content[options.requestBodyContentType] = &OpenApiMediaTypeObject{Schema: referenceToSchema}
+			openapi.Components.RequestBodies[schemaName].Content[options.requestBodyContentType] = &MediaTypeObject{Schema: referenceToSchema}
 		}
 		// fill components/responses with schemas
-		openapi.Components.Responses[schemaName] = OpenApiResponseObject{Description: "response"}
+		openapi.Components.Responses[schemaName] = ResponseObject{Description: "response", Content: map[string]*MediaTypeObject{"application/json": {Schema: referenceToSchema}}}
+
+		if !disableResponseList {
+			openapi.Components.Responses[schemaName+"List"] = ResponseObject{Description: "response list", Content: map[string]*MediaTypeObject{"application/json": {Schema: &Schema{Type: "array", Items: referenceToSchema}}}}
+		}
 
 		if requestSchema != nil && requestSchema.Type != "" {
-			openapi.Components.RequestBodies[schemaName].Content[options.responseContentType] = &OpenApiMediaTypeObject{Schema: responseSchema}
+			openapi.Components.RequestBodies[schemaName].Content[options.responseContentType] = &MediaTypeObject{Schema: responseSchema}
 		} else {
-			openapi.Components.RequestBodies[schemaName].Content[options.responseContentType] = &OpenApiMediaTypeObject{Schema: referenceToSchema}
+			openapi.Components.RequestBodies[schemaName].Content[options.responseContentType] = &MediaTypeObject{Schema: referenceToSchema}
 		}
 		// fill components/parameters with primaryKeys
 		if parameterSchema != nil {
-			openapi.Components.Parameters[schemaName] = &OpenApiParameterObject{Name: "main", In: "query", Required: true, Schema: parameterSchema}
+			openapi.Components.Parameters[schemaName] = &ParameterObject{Name: "main", In: "query", Required: true, Schema: parameterSchema}
 		} else if len(schema.PrimaryKeys) > 0 {
 			schemaPrimaryKey := Schema{Type: "object", Required: schema.PrimaryKeys, Properties: map[string]*Schema{}}
 
@@ -1231,34 +1282,30 @@ func (openapi *OpenApi) FillOpenApi(options FillOpenApiOptions) {
 				schemaPrimaryKey.Properties[primaryKey] = schema.Properties[primaryKey]
 			}
 
-			parameterObject := &OpenApiParameterObject{Name: "primaryKey", In: "query", Required: true, Schema: &schemaPrimaryKey}
+			parameterObject := &ParameterObject{Name: "primaryKey", In: "query", Required: true, Schema: &schemaPrimaryKey}
 			openapi.Components.Parameters[schemaName] = parameterObject
 		}
 		// path
-		pathName := fmt.Sprintf("/%s", schemaName)
-		pathItemObject := OpenApiPathItemObject{}
-
-		if openapi.Paths == nil {
-			openapi.Paths = map[string]OpenApiPathItemObject{}
-		}
-
+		pathName := fmt.Sprintf("/%s", CamelToUnderscore(schemaName))
+		pathItemObject := PathItemObject{}
 		openapi.Paths[pathName] = pathItemObject
-		mediaTypeOk := &OpenApiMediaTypeObject{Schema: &Schema{Ref: fmt.Sprintf("#/components/responses/%s", schemaName)}}
-		mediaTypeError := &OpenApiMediaTypeObject{Schema: &Schema{Ref: `#/components/responses/Error`}}
-		responsesRef := OpenApiResponseObject{Content: map[string]*OpenApiMediaTypeObject{"200": mediaTypeOk, "default": mediaTypeError}}
-		parametersRef := []OpenApiParameterObject{{Schema: &Schema{Ref: fmt.Sprintf(`#/components/parameters/%s`, schemaName)}}}
-		requestBodyRef := OpenApiRequestBodyObject{Ref: fmt.Sprintf(`#/components/requestBodies/%s`, schemaName)}
+		responsesRefOk := &ResponseObject{Ref: fmt.Sprintf("#/components/responses/%s", schemaName)}
+		responsesRefOkList := &ResponseObject{Ref: fmt.Sprintf("#/components/responses/%sList", schemaName)}
+		responsesRefError := &ResponseObject{Ref: `#/components/responses/Error`}
+		parametersRef := []ParameterObject{{Ref: fmt.Sprintf(`#/components/parameters/%s`, schemaName)}}
+		requestBodyRef := RequestBodyObject{Ref: fmt.Sprintf(`#/components/requestBodies/%s`, schemaName)}
 
 		methods := []string{"get", "put", "post", "delete", "patch"}
 		methodsHaveParameters := []bool{true, true, false, true, true}
 		methodsHaveRequestBody := []bool{false, true, true, false, true}
+		methodsHaveResponseList := []bool{true, false, false, false, false}
 
 		for i, method := range methods {
 			if slices.Index(options.methods, method) < 0 {
 				continue
 			}
 
-			operationObject := OpenApiOperationObject{}
+			operationObject := &OperationObject{}
 
 			if len(options.methods) > 1 {
 				operationObject.OperationId = fmt.Sprintf("zzz_%s_%s", method, schemaName)
@@ -1271,13 +1318,22 @@ func (openapi *OpenApi) FillOpenApi(options FillOpenApiOptions) {
 			}
 
 			if methodsHaveRequestBody[i] {
-				operationObject.RequestBody = requestBodyRef
+				operationObject.RequestBody = &requestBodyRef
 			}
 
-			operationObject.Responses = responsesRef
+			if methodsHaveResponseList[i] && !disableResponseList {
+				operationObject.Responses = map[string]*ResponseObject{"200": responsesRefOkList, "default": responsesRefError}
+			} else {
+				operationObject.Responses = map[string]*ResponseObject{"200": responsesRefOk, "default": responsesRefError}
+			}
+
 			operationObject.Tags = []string{schemaName}
 			operationObject.Description = fmt.Sprintf(`CRUD %s operation over %s`, method, schemaName)
-			operationObject.Security = []OpenApiSecurityRequirementObject{options.security}
+			operationObject.Security = []SecurityRequirementObject{}
+
+			if options.security != nil {
+				operationObject.Security = append(operationObject.Security, options.security)
+			}
 
 			if !methodsHaveParameters[i] || operationObject.Parameters != nil {
 				pathItemObject[method] = operationObject
@@ -1324,29 +1380,171 @@ func (openapi *OpenApi) getSchemaFromRequestBodies(schemaName string) (schema *S
 	return schema, schema != nil
 }
 
-func (openapi *OpenApi) getSchemaFromParameters(schemaName string) (*Schema, error) {
+func (openapi *OpenApi) getSchemaFromResponses(schemaName string) (schema *Schema, ok bool) {
 	schemaName = OpenApiGetSchemaName(schemaName)
-	parameterObject := openapi.Components.Parameters[schemaName]
+	responseObject, ok := openapi.Components.Responses[schemaName]
 
-	if parameterObject.Schema == nil {
-		return nil, fmt.Errorf("[OpenApi.getSchemaFromParameters] don't find schema from parameter %s", schemaName)
+	if !ok {
+		return nil, ok
 	}
 
-	return parameterObject.Schema, nil
+	for _, mediaTypeObject := range responseObject.Content {
+		if mediaTypeObject.Schema.Ref != "" {
+			schema, _ = openapi.getSchemaFromRef(mediaTypeObject.Schema.Ref)
+			break
+		} else if mediaTypeObject.Schema.Properties != nil || mediaTypeObject.Schema.Items != nil {
+			schema = mediaTypeObject.Schema
+			break
+		}
+	}
+
+	return schema, schema != nil
 }
 
-/*
-static getOperationObject(openapi, resource, method) {
-let operationObject = nil;
-const pathItemObject = openapi.paths["/" + resource];
+func (openapi *OpenApi) getSchemaFromRef(ref string) (schema *Schema, err error) {
+	schemaName := OpenApiGetSchemaName(ref)
 
-if (pathItemObject != nil) {
-	operationObject = pathItemObject[method.toLowerCase()];
+	if strings.HasPrefix(ref, "#/components/parameters/") {
+		if parameterObject, ok := openapi.Components.Parameters[schemaName]; ok {
+			schema = parameterObject.Schema
+		}
+	} else if strings.HasPrefix(ref, "#/components/schemas/") {
+		schema = openapi.Components.Schemas[schemaName]
+	} else if strings.HasPrefix(ref, "#/components/responses/") {
+		if response, ok := openapi.Components.Responses[schemaName]; ok {
+			for _, content := range response.Content {
+				schema = content.Schema
+				break
+			}
+		}
+	}
+
+	if schema == nil {
+		err = fmt.Errorf("[OpenApi.getSchemaFromParameters] don't find schema from %s", ref)
+	} else if schema.Name == "" {
+		schema.Name = schemaName
+	}
+
+	return schema, err
 }
 
-return operationObject;
+func (openapi *OpenApi) getPathParams(uri string, params map[string]any) (path string, err error) {
+	uriSegments := strings.Split(uri, "/")
+
+	for pattern := range openapi.Paths {
+		pathSegments := strings.Split(pattern, "/")
+
+		if len(uriSegments) == len(pathSegments) {
+			match := true
+
+			for idx, pathSegment := range pathSegments {
+				if strings.HasPrefix(pathSegment, "{") && strings.HasSuffix(pathSegment, "}") {
+					name := pathSegment[1 : len(pathSegment)-1]
+					params[name] = uriSegments[idx]
+				} else if pathSegment != uriSegments[idx] {
+					match = false
+					break
+				}
+			}
+
+			if match {
+				path = pattern
+				break
+			}
+		}
+	}
+
+	return path, err
 }
-*/
+
+func (openapi *OpenApi) getSchemaFromParameters(path string, method string) (*Schema, error) {
+	for pattern, pathItemObject := range openapi.Paths {
+		if pattern == path {
+			if operationObject, ok := pathItemObject[method]; ok {
+				for _, parameterObject := range operationObject.Parameters {
+					if parameterObject.Ref != "" {
+						return openapi.getSchemaFromRef(parameterObject.Ref)
+					} else if parameterObject.Schema != nil {
+						if parameterObject.Schema.Ref != "" {
+							return openapi.getSchemaFromRef(parameterObject.Schema.Ref)
+						} else {
+							return parameterObject.Schema, nil
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("[OpenApi.getSchemaFromParameters] don't find schema parameter from %s", path)
+}
+
+func (openapi *OpenApi) getSchema(path string, method string, _type string) (schema *Schema, err error) {
+	getSchemaFromContent := func(content map[string]*MediaTypeObject) (schema *Schema, err error) {
+		for _, mediaTypeObject := range content {
+			if mediaTypeObject.Schema.Ref != "" {
+				schema, err = openapi.getSchemaFromRef(mediaTypeObject.Schema.Ref)
+			} else {
+				schema = mediaTypeObject.Schema
+			}
+		}
+
+		return schema, err
+	}
+
+	if pathItemObject, ok := openapi.Paths[path]; ok {
+		method = strings.ToLower(method)
+
+		if operationObject, ok := pathItemObject[method]; ok {
+			if _type == "responseObject" {
+				if responseObject, ok := operationObject.Responses["200"]; ok {
+					if responseObject.Ref != "" {
+						if schema, ok := openapi.getSchemaFromResponses(responseObject.Ref); ok {
+							return schema, nil
+						}
+					}
+
+					return getSchemaFromContent(responseObject.Content)
+				}
+			}
+		} else {
+			err = fmt.Errorf("[OpenApi.getResponseSchema] missing OperationObject %s.%s", path, method)
+		}
+	} else {
+		err = fmt.Errorf("[OpenApi.getResponseSchema] missing PathItemObject %s", path)
+	}
+
+	return schema, err
+}
+
+func (openapi *OpenApi) getSchemaName(path string, method string) (ret string, err error) {
+	if pathItemObject, ok := openapi.Paths[path]; ok {
+		method = strings.ToLower(method)
+
+		if operationObject, ok := pathItemObject[method]; ok {
+			if method == "post" {
+				ret = OpenApiGetSchemaName(operationObject.RequestBody.Ref)
+			} else {
+				if responseObject, ok := operationObject.Responses["200"]; ok {
+					schema, err := openapi.getSchemaFromRef(responseObject.Ref)
+
+					if err == nil && schema.Type == "array" && schema.Items != nil && schema.Items.Ref != "" {
+						ret = OpenApiGetSchemaName(schema.Items.Ref)
+					} else {
+						ret = OpenApiGetSchemaName(responseObject.Ref)
+					}
+				}
+			}
+		} else {
+			err = fmt.Errorf("[OpenApi.getSchemaName] missing OperationObject %s.%s", path, method)
+		}
+	} else {
+		err = fmt.Errorf("[OpenApi.getSchemaName] missing PathItemObject %s", path)
+	}
+
+	return ret, err
+}
+
 func (openapi *OpenApi) getPropertyFromSchema(schema *Schema, propertyName string) (ret *Schema, ok bool) {
 	if value, ok := schema.Properties[propertyName]; ok {
 		return value, ok
@@ -1619,10 +1817,6 @@ func (openapi *OpenApi) getForeignKeyDescription(schema string, fieldName string
 	return &ret, nil
 }
 
-func (openapi *OpenApi) getForeignKeyEntries(serviceName string, ref string) (list []map[string]any, err error) {
-	return openapi.getPropertiesWithRef(serviceName, ref)
-}
-
 /*
 static getForeignKey(openapi, schema, fieldName, obj, localSchemas) {
 if (fieldName == "CpfCnpj" && obj.cpfCnpj != null)
@@ -1665,7 +1859,7 @@ func (openapi *OpenApi) getPrimaryKeyForeign(schemaName string, fieldName string
 
 		foreignKeyDescription, err := openapi.getForeignKeyDescription(schemaName, fieldName)
 
-		if err != nil {
+		if err != nil || foreignKeyDescription == nil {
 			return nil, err
 		}
 

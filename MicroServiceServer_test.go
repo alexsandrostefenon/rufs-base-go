@@ -1,6 +1,7 @@
 package rufsBase
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -8,15 +9,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/exp/slices"
 )
 
 func TestBase(t *testing.T) {
 	os.Remove("./openapi-base.json")
 	service := &RufsMicroService{MicroServiceServer: MicroServiceServer{ServeStaticPaths: "../rufs-base-es6/webapp,../rufs-crud-es6/webapp"}}
-	//	var service IMicroServiceServer = &RufsMicroService{}
-	if err := service.Init(service); err != nil {
-		log.Fatalf("[TestBase] Server.Init : %s", err)
-	}
 
 	serviceRunning := make(chan struct{})
 	serviceDone := make(chan struct{})
@@ -26,10 +25,10 @@ func TestBase(t *testing.T) {
 		log.Print("[TestBase] Listen...")
 
 		if err := service.Listen(); err != nil && err != http.ErrServerClosed {
-			log.Fatal("[TestBase] Unexpected server closed !")
+			log.Fatalf("[TestBase] Server.Listen : %s", err)
 		}
 
-		log.Print("[TestBase] ...Listen.")
+		log.Print("[TestBase] ...Listen is done.")
 		defer close(serviceDone)
 	}()
 
@@ -44,8 +43,8 @@ func TestBase(t *testing.T) {
 		log.Fatalf("[TestBase] Error in login request : %d : %s", resp.StatusCode, err)
 	}
 
-	if role, ok := sc.loginResponse.Roles["rufsUser"]; ok {
-		log.Printf("[TestBase] Role mask of user %s : %b", sc.loginResponse.Name, role)
+	if idx := slices.IndexFunc(sc.loginResponse.Roles, func(e Role) bool { return e.Path == "/rufs_user" }); idx >= 0 {
+		log.Printf("[TestBase] Role mask of user %s : %b", sc.loginResponse.Name, sc.loginResponse.Roles[idx].Mask)
 	} else {
 		log.Fatalf("[TestBase] Missing Role mask of user %s", sc.loginResponse.Name)
 	}
@@ -57,7 +56,7 @@ func TestBase(t *testing.T) {
 	}
 
 	listUser := []*RufsUser{}
-	resp, err = RufsRestRequest(&sc.httpRest, "/rest/rufs_user/query", http.MethodGet, nil, &listUser, &listUser)
+	resp, err = RufsRestRequest(&sc.httpRest, "/rest/rufs_user", http.MethodGet, nil, &listUser, &listUser)
 
 	if err != nil || resp.StatusCode != http.StatusOK {
 		log.Fatalf("[TestBase] error in users query request : %d : %s", resp.StatusCode, err)
@@ -145,11 +144,115 @@ func TestBase(t *testing.T) {
 func TestExternal(t *testing.T) {
 	service := &RufsMicroService{MicroServiceServer: MicroServiceServer{ServeStaticPaths: "../rufs-base-es6/webapp,../rufs-crud-es6/webapp"}}
 
-	if err := service.Init(service); err != nil {
-		log.Fatalf("[TestBase] Server.Init : %s", err)
+	if err := service.Listen(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("[TestExternal] Server.Listen : %s", err)
+	}
+}
+
+type SimulatorMicroService struct {
+	RufsMicroService
+}
+
+func (rms *SimulatorMicroService) OnRequest(req *http.Request) Response {
+	return rms.RufsMicroService.OnRequest(req)
+}
+
+func (rms *SimulatorMicroService) LoadFileTables() error {
+	rms.RufsMicroService.LoadFileTables()
+	var emptyList []map[string]any
+	var next func(list []string, idx int)
+
+	next = func(list []string, idx int) {
+		if idx < len(list) {
+			rms.fileDbAdapter.Load(list[idx], emptyList)
+			idx++
+			next(list, idx)
+		}
 	}
 
+	listNames := []string{"Condominium", "Contact", "Unit", "Reading", "Invoice", "Receivable"}
+	next(listNames, 0)
+	listPath := []string{"/condominium", "/condominium/{cnpj}", "/contact", "/unit", "/reading", "/invoice", "/receivable"}
+
+	if user, err := rms.fileDbAdapter.FindOne("rufsUser", map[string]any{"password": "9CC6D224E7DF4292BD510FD8279DAB35"}); err == nil && user == nil {
+		roles := []Role{}
+
+		for _, path := range listPath {
+			roles = append(roles, Role{Path: path, Mask: 0xff})
+		}
+
+		rms.fileDbAdapter.Insert("rufsUser", map[string]any{"password": "9CC6D224E7DF4292BD510FD8279DAB35", "roles": roles})
+	}
+
+	return nil
+}
+
+func (rms *SimulatorMicroService) Listen() (err error) {
+	if rms.Irms == nil {
+		rms.Irms = rms
+	}
+
+	if rms.Imss == nil {
+		rms.Imss = rms
+	}
+
+	return rms.RufsMicroService.Listen()
+}
+
+func TestSimulator(t *testing.T) {
+	service := &SimulatorMicroService{}
+	service.port = 9080
+	service.ServeStaticPaths = "../rufs-base-es6/webapp,../rufs-crud-es6/webapp"
+	service.appName = "condoconta"
+	service.openapiFileName = "../rufs-inetsoft-es6/openapi/condoconta.json"
+
 	if err := service.Listen(); err != nil && err != http.ErrServerClosed {
-		log.Fatal("[TestBase] Unexpected server closed !")
+		log.Fatalf("[TestSimulator] Server.Listen : %s", err)
+	}
+}
+
+type NfeMicroService struct {
+	RufsMicroService
+}
+
+func TestNfe(t *testing.T) {
+	reset := func(dbConfig *DbConfig, fake bool) {
+		if fake {
+			return
+		}
+
+		os.Remove(`openapi-nfe.json`)
+		dataSourceName := fmt.Sprintf("postgres://%s:%s@localhost:5432/%s", dbConfig.user, dbConfig.password, dbConfig.database+"_development")
+		client, err := sql.Open("pgx", dataSourceName)
+
+		if err != nil {
+			log.Fatalf("[TestNfe] : %s", err)
+		}
+
+		_, err = client.Exec(fmt.Sprintf(`drop database if exists %s`, dbConfig.database))
+
+		if err != nil {
+			log.Fatalf("[TestNfe] : %s", err)
+		}
+
+		_, err = client.Exec(fmt.Sprintf(`create database %s`, dbConfig.database))
+
+		if err != nil {
+			log.Fatalf("[TestNfe] : %s", err)
+		}
+	}
+
+	dbConfig := &DbConfig{user: "development", password: "123456", database: "rufs_nfe"}
+	reset(dbConfig, false)
+	service := &NfeMicroService{RufsMicroService: RufsMicroService{}}
+	service.port = 9090
+	service.ServeStaticPaths = "../rufs-base-es6/webapp,../rufs-crud-es6/webapp,../rufs-nfe-es6/webapp"
+	service.appName = "nfe"
+	service.checkRufsTables = true
+	service.dbConfig = dbConfig
+	service.migrationPath = "../rufs-nfe-es6/sql"
+
+	if err := service.Listen(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("[TestSimulator] Server.Listen : %s", err)
 	}
 }

@@ -1,6 +1,7 @@
 package rufsBase
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -10,7 +11,7 @@ import (
 
 type FileDbAdapter struct {
 	openapi    *OpenApi
-	fileTables map[string][]any
+	fileTables map[string][]map[string]any
 }
 
 func (fileDbAdapter *FileDbAdapter) Connect() error {
@@ -23,28 +24,29 @@ func (fileDbAdapter *FileDbAdapter) Connect() error {
 		this.openapi = openapi;
 	}
 */
-func FileDbAdapterLoad[T any](fda *FileDbAdapter, name string) (list []T, err error) {
+func (fda *FileDbAdapter) Load(name string, defaultRows []map[string]any) (err error) {
 	var data []byte
+	var list []map[string]any
 
 	if data, err = ioutil.ReadFile(fmt.Sprintf("%s.json", name)); err == nil {
 		err = json.Unmarshal(data, &list)
 	}
 
 	if fda.fileTables == nil {
-		fda.fileTables = make(map[string][]any)
+		fda.fileTables = make(map[string][]map[string]any)
 	}
 
-	listAny := make([]any, len(list))
-
-	for i := range list {
-		listAny[i] = list[i]
+	if len(list) == 0 && len(defaultRows) > 0 {
+		err = fda.store(name, defaultRows)
+		list = defaultRows
 	}
 
-	fda.fileTables[name] = listAny
-	return list, err
+	fda.fileTables[name] = list
+
+	return err
 }
 
-func FileDbAdapterStore[T any](fda *FileDbAdapter, name string, list []T) error {
+func (fda *FileDbAdapter) store(name string, list []map[string]any) error {
 	/*
 		const schema = this.openapi.components.schemas[tableName];
 		let listOut;
@@ -80,13 +82,7 @@ func FileDbAdapterStore[T any](fda *FileDbAdapter, name string, list []T) error 
 	}
 
 	log.Printf("[FileDbAdapterStore] : ... writed file %s", fileName)
-	listAny := make([]any, len(list))
-
-	for i := range list {
-		listAny[i] = list[i]
-	}
-
-	fda.fileTables[name] = listAny
+	fda.fileTables[name] = list
 	return nil
 }
 
@@ -101,13 +97,13 @@ func (fileDbAdapter *FileDbAdapter) Insert(tableName string, obj map[string]any)
 		id := 0
 
 		for _, item := range list {
-			itemMap := map[string]any{}
 			buffer, err := json.Marshal(item)
 
 			if err != nil {
 				return nil, err
 			}
 
+			itemMap := map[string]any{}
 			json.Unmarshal(buffer, &itemMap)
 
 			if value, ok := itemMap["id"]; ok && int(value.(float64)) > id {
@@ -119,11 +115,11 @@ func (fileDbAdapter *FileDbAdapter) Insert(tableName string, obj map[string]any)
 	}
 
 	list = append(list, obj)
-	FileDbAdapterStore(fileDbAdapter, tableName, list)
+	fileDbAdapter.store(tableName, list)
 	return obj, nil
 }
 
-func (fileDbAdapter *FileDbAdapter) Find(tableName string, fields map[string]any, orderBy []string) ([]any, error) {
+func (fileDbAdapter *FileDbAdapter) Find(tableName string, fields map[string]any, orderBy []string) ([]map[string]any, error) {
 	if list, ok := fileDbAdapter.fileTables[tableName]; ok {
 		return FilterFind(list, fields)
 	}
@@ -164,7 +160,7 @@ func (fileDbAdapter *FileDbAdapter) Update(tableName string, key map[string]any,
 	}
 
 	list[pos] = obj
-	FileDbAdapterStore(fileDbAdapter, tableName, list)
+	fileDbAdapter.store(tableName, list)
 	return obj, nil
 }
 
@@ -181,10 +177,14 @@ func (fileDbAdapter *FileDbAdapter) DeleteOne(tableName string, key map[string]a
 		return fmt.Errorf("[FileDbAdapter.DeleteOne(name = %s, key = %s)] fail : %s", tableName, key, err)
 	}
 
-	list = append(list[:pos], list[pos+1:])
-	return FileDbAdapterStore(fileDbAdapter, tableName, list)
+	list = append(list[:pos], list[pos+1:]...)
+	return fileDbAdapter.store(tableName, list)
 }
 
-func (fileDbAdapter *FileDbAdapter) GetOpenApi(openapi *OpenApi, options map[string]any) (*OpenApi, error) {
-	return fileDbAdapter.openapi, nil
+func (fileDbAdapter *FileDbAdapter) UpdateOpenApi(openapi *OpenApi, options FillOpenApiOptions) error {
+	return nil
+}
+
+func (fileDbAdapter *FileDbAdapter) CreateTable(name string, schema *Schema) (sql.Result, error) {
+	return nil, nil
 }

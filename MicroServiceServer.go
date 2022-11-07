@@ -1,6 +1,7 @@
 package rufsBase
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -40,14 +41,16 @@ func ResponseCreate(body []byte, status int) Response {
 
 func ResponseOk[T any](obj T) Response {
 	status := http.StatusOK
-	body, err := json.Marshal(obj)
+	buffer := &bytes.Buffer{}
+	encoder := json.NewEncoder(buffer)
+	encoder.SetEscapeHTML(false)
+	err := encoder.Encode(obj)
 
 	if err != nil {
-		status = 500
-		body = []byte(fmt.Sprint(err))
+		return ResponseCreate([]byte(fmt.Sprint(err)), 500)
 	}
 
-	return ResponseCreate(body, status)
+	return ResponseCreate(buffer.Bytes(), status)
 }
 
 func ResponseUnauthorized(msg string) Response {
@@ -62,27 +65,36 @@ func ResponseInternalServerError(msg string) Response {
 	return ResponseCreate([]byte(msg), 500)
 }
 
-type MicroServiceServer struct {
-	appName             string
-	protocol            string
-	port                int
-	addr                string
-	apiPath             string
-	security            string
-	ServeStaticPaths    string
-	wsServerConnections map[string]*websocket.Conn
-	httpServer          *http.Server
-}
-
 type IMicroServiceServer interface {
-	Init(imss IMicroServiceServer) error
+	LoadOpenApi() error
 	Listen() error
 	Shutdown()
-	OnRequest(req *http.Request, resource string, action string) Response
+	OnRequest(req *http.Request) Response
 	OnWsMessageFromClient(connection *websocket.Conn, tokenString string)
 }
 
-func (mss *MicroServiceServer) Init(imss IMicroServiceServer) {
+type MicroServiceServer struct {
+	appName                string
+	protocol               string
+	port                   int
+	addr                   string
+	apiPath                string
+	security               string
+	requestBodyContentType string
+	ServeStaticPaths       string
+	openapiFileName        string
+	openapi                *OpenApi
+	wsServerConnections    map[string]*websocket.Conn
+	httpServer             *http.Server
+	Imss                   IMicroServiceServer
+}
+
+func (mss *MicroServiceServer) OnRequest(req *http.Request) Response {
+	log.Printf("[MicroServiceServer.OnRequest] : %s", req.URL.Path)
+	return ResponseOk("OnRequest")
+}
+
+func (mss *MicroServiceServer) Listen() error {
 	mss.wsServerConnections = make(map[string]*websocket.Conn)
 	serveStaticPaths := path.Join(path.Dir(reflect.TypeOf(mss).PkgPath()), "webapp")
 
@@ -98,6 +110,10 @@ func (mss *MicroServiceServer) Init(imss IMicroServiceServer) {
 
 	if mss.apiPath == "" {
 		mss.apiPath = "rest"
+	}
+
+	if mss.Imss == nil {
+		mss.Imss = mss
 	}
 
 	mss.httpServer = &http.Server{Addr: fmt.Sprintf("%s:%d", mss.addr, mss.port)}
@@ -130,19 +146,12 @@ func (mss *MicroServiceServer) Init(imss IMicroServiceServer) {
 	})
 
 	http.HandleFunc("/"+mss.apiPath+"/", func(res http.ResponseWriter, req *http.Request) {
-		log.Printf("[MicroServiceServer.HandleFunc] : received http request %s from %s", req.RequestURI, req.RemoteAddr)
-		paths := strings.Split(req.URL.Path, "/")
-		var resource string
-		var action string
-
-		if len(paths) >= 3 {
-			resource = UnderscoreToCamel(paths[2], false)
-
-			if len(paths) >= 4 {
-				action = paths[3]
-			}
-		}
-
+		buf, _ := ioutil.ReadAll(req.Body)
+		rdr1 := ioutil.NopCloser(bytes.NewBuffer(buf))
+		rdr2 := ioutil.NopCloser(bytes.NewBuffer(buf))
+		log.Printf("authorization='%s';", req.Header.Get("Authorization"))
+		log.Printf("curl -X '%s' %s -d '%s' -H \"Authorization: $authorization\";", req.Method, req.RequestURI, rdr1)
+		req.Body = rdr2
 		res.Header().Set("Access-Control-Allow-Origin", "*")
 		res.Header().Set("Access-Control-Allow-Methods", "GET, PUT, OPTIONS, POST, DELETE")
 		res.Header().Set("Access-Control-Allow-Headers", req.Header.Get("Access-Control-Request-Headers"))
@@ -152,7 +161,7 @@ func (mss *MicroServiceServer) Init(imss IMicroServiceServer) {
 			return
 		}
 
-		ret := imss.OnRequest(req, resource, action)
+		ret := mss.Imss.OnRequest(req)
 		res.Header().Set("Content-Type", ret.ContentType)
 		//log.Printf("[HandleFunc] : ret.Body = %s", string(ret.Body))
 		res.WriteHeader(ret.StatusCode)
@@ -186,52 +195,55 @@ func (mss *MicroServiceServer) Init(imss IMicroServiceServer) {
 				break
 			}
 
-			imss.OnWsMessageFromClient(connection, string(message))
+			mss.Imss.OnWsMessageFromClient(connection, string(message))
 		}
 	})
-}
 
-func (mss *MicroServiceServer) OnRequest(req *http.Request, resource string, action string) Response {
-	log.Printf("[MicroServiceServer.OnRequest] resource = %s - action = %s", resource, action)
-	return ResponseOk("OnRequest")
-}
-
-func (mss *MicroServiceServer) Listen() error {
 	log.Print("[MicroServiceServer.Listen]")
 	return mss.httpServer.ListenAndServe()
 }
 
-func (mss *MicroServiceServer) LoadOpenApi() (*OpenApi, error) {
+func (mss *MicroServiceServer) LoadOpenApi() error {
 	//if (fileName == null) fileName = this.constructor.getArg("openapi-file");
 	//if (fileName == null) fileName = `openapi-${this.config.appName}.json`;
-	fileName := fmt.Sprintf("openapi-%s.json", mss.appName)
+	if mss.openapiFileName == "" {
+		mss.openapiFileName = fmt.Sprintf("openapi-%s.json", mss.appName)
+	}
 	//console.log(`[${this.constructor.name}.loadOpenApi()] loading ${fileName}`);
-	openapi := &OpenApi{}
+	if mss.security == "" {
+		mss.security = "jwt"
+	}
 
-	if data, err := ioutil.ReadFile(fileName); err == nil {
-		if err = json.Unmarshal(data, &openapi); err != nil {
+	if mss.openapi == nil {
+		mss.openapi = &OpenApi{}
+	}
+
+	if data, err := ioutil.ReadFile(mss.openapiFileName); err == nil {
+		if err = json.Unmarshal(data, mss.openapi); err != nil {
 			//console.log(`[${this.constructor.name}.loadOpenApi()] : fail to parse file :`, err);
-			OpenApiCreate(openapi, mss.security)
+			UtilsShowJsonUnmarshalError(string(data), err)
+			log.Fatalf("[MicroServiceServer.LoadOpenApi] : %s", err)
+			OpenApiCreate(mss.openapi, mss.security)
 		}
 	} else {
-		OpenApiCreate(openapi, mss.security)
+		OpenApiCreate(mss.openapi, mss.security)
 	}
 
-	if len(openapi.Servers) == 0 {
-		openapi.Servers = append(openapi.Servers, &OpenApiServerComponent{Url: fmt.Sprintf("%s://localhost:%d/%s", mss.protocol, mss.port, mss.apiPath)})
-		openapi.Servers = append(openapi.Servers, &OpenApiServerComponent{Url: fmt.Sprintf("%s://localhost:%d/%s/%s", mss.protocol, (mss.port/10)*10, mss.appName, mss.apiPath)})
+	if len(mss.openapi.Servers) == 0 {
+		mss.openapi.Servers = append(mss.openapi.Servers, &ServerObject{Url: fmt.Sprintf("%s://localhost:%d/%s", mss.protocol, mss.port, mss.apiPath)})
+		mss.openapi.Servers = append(mss.openapi.Servers, &ServerObject{Url: fmt.Sprintf("%s://localhost:%d/%s/%s", mss.protocol, (mss.port/10)*10, mss.appName, mss.apiPath)})
 	}
 
-	openapi.convertStandartToRufs()
-	return openapi, nil
+	mss.openapi.convertStandartToRufs()
+	return nil
 }
 
-func (mss *MicroServiceServer) StoreOpenApi(openapi *OpenApi, fileName string) (err error) {
+func (mss *MicroServiceServer) StoreOpenApi(fileName string) (err error) {
 	if fileName == "" {
 		fileName = fmt.Sprintf("openapi-%s.json", mss.appName)
 	}
 
-	if data, err := json.Marshal(openapi); err != nil {
+	if data, err := json.MarshalIndent(mss.openapi, "", "\t"); err != nil {
 		log.Fatalf("[FileDbAdapterStore] : failt to marshal list before wrinting file %s : %s", fileName, err)
 	} else if err = ioutil.WriteFile(fileName, data, fs.ModePerm); err != nil {
 		log.Fatalf("[FileDbAdapterStore] : failt to write file %s : %s", fileName, err)

@@ -14,18 +14,6 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-type RequestFilter struct {
-	microService    *RufsMicroService
-	entityManager   EntityManager
-	req             *http.Request
-	tokenPayload    *TokenPayload
-	serviceName     string
-	uriPath         string
-	queryParameters map[string]any
-	objIn           map[string]any
-	primaryKey      map[string]any
-}
-
 /*
 type DataStoreManagerDb struct {
 	// DataStoreManager
@@ -47,35 +35,93 @@ func (dsmd *DataStoreManagerDb) Get(schemaName, primaryKey, ignoreCache) {
 	});
 }
 */
+type RequestFilter struct {
+	microService  *RufsMicroService
+	entityManager EntityManager
+	//	req            *http.Request
+	tokenPayload *TokenPayload
+	path         string
+	method       string
+	schemaName   string
+	parameters   map[string]any
+	objIn        map[string]any
+}
+
+func RequestFilterInitialize(req *http.Request, rms *RufsMicroService) (*RequestFilter, error) {
+	var err error
+	rf := &RequestFilter{}
+	rf.microService = rms
+	rf.method = strings.ToLower(req.Method)
+
+	if rf.method == "post" || rf.method == "put" || rf.method == "patch" {
+		err := json.NewDecoder(req.Body).Decode(&rf.objIn)
+
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if req.URL.RawQuery != "" {
+		rf.parameters, err = qs.Unmarshal(req.URL.RawQuery)
+
+		if err != nil {
+			return nil, fmt.Errorf("[RequestFilter.Initialize] fail to parse url query parameters : %s", err)
+		}
+	} else {
+		rf.parameters = map[string]any{}
+	}
+
+	uriPath := req.URL.Path
+
+	if strings.HasPrefix(uriPath, "/"+rms.apiPath+"/") {
+		uriPath = uriPath[len(rms.apiPath)+1:]
+	}
+
+	rf.path, err = rms.openapi.getPathParams(uriPath, rf.parameters)
+
+	if rf.path == "" {
+		return nil, fmt.Errorf("[RufsMicroService.Initialize] : missing path for %s", uriPath)
+	}
+
+	if rf.schemaName, err = rms.openapi.getSchemaName(rf.path, rf.method); err != nil {
+		return nil, fmt.Errorf("[RufsMicroService.Initialize] : %s", err)
+	}
+
+	if _, ok := rf.microService.fileDbAdapter.fileTables[rf.schemaName]; ok {
+		rf.entityManager = rms.fileDbAdapter
+	} else {
+		rf.entityManager = rms.entityManager
+	}
+
+	return rf, nil
+}
 
 // private to create,update,delete,read
 func (rf *RequestFilter) checkObjectAccess(obj map[string]any) Response {
-	_, ok := rf.microService.dataStoreManager.openapi.getSchemaFromSchemas(rf.serviceName)
-
-	if !ok {
-		return ResponseBadRequest(fmt.Sprintf("[RequestFilter.processQuery] Fail to find schema of %s", rf.serviceName))
+	if _, ok := rf.microService.openapi.getSchemaFromSchemas(rf.schemaName); !ok {
+		return ResponseBadRequest(fmt.Sprintf("[RequestFilter.processQuery] Fail to find schema %s", rf.schemaName))
 	}
 
 	var response Response
 	userRufsGroupOwner := rf.tokenPayload.RufsGroupOwner
-	rufsGroupOwnerEntries, _ := rf.microService.dataStoreManager.openapi.getForeignKeyEntries(rf.serviceName, "#/components/schemas/rufsGroupOwner")
+	rufsGroupOwnerEntries, _ := rf.microService.openapi.getPropertiesWithRef(rf.schemaName, "#/components/schemas/rufsGroupOwner")
 
 	if userRufsGroupOwner > 1 && len(rufsGroupOwnerEntries) > 0 {
-		objRufsGroupOwner, _ := rf.microService.dataStoreManager.openapi.getPrimaryKeyForeign(rf.serviceName, "rufsGroupOwner", obj)
+		objRufsGroupOwner, _ := rf.microService.openapi.getPrimaryKeyForeign(rf.schemaName, "rufsGroupOwner", obj)
 
 		if objRufsGroupOwner == nil {
 			obj["rufsGroupOwner"] = userRufsGroupOwner
 			objRufsGroupOwner.PrimaryKey["id"] = userRufsGroupOwner
 		}
 
-		if objRufsGroupOwner.PrimaryKey["id"] == userRufsGroupOwner {
-			rufsGroup, _ := rf.microService.dataStoreManager.openapi.getPrimaryKeyForeign(rf.serviceName, "rufsGroup", obj)
+		if objRufsGroupOwner.PrimaryKey["id"].(int) == userRufsGroupOwner {
+			rufsGroup, _ := rf.microService.openapi.getPrimaryKeyForeign(rf.schemaName, "rufsGroup", obj)
 
 			if rufsGroup != nil {
 				found := false
 
 				for _, group := range rf.tokenPayload.Groups {
-					if group == rufsGroup.PrimaryKey["id"] {
+					if group == rufsGroup.PrimaryKey["id"].(int) {
 						found = true
 						break
 					}
@@ -100,7 +146,7 @@ func (rf *RequestFilter) processCreate() Response {
 		return response
 	}
 
-	newObj, err := rf.entityManager.Insert(rf.serviceName, rf.objIn)
+	newObj, err := rf.entityManager.Insert(rf.schemaName, rf.objIn)
 
 	if err != nil {
 		return ResponseInternalServerError(fmt.Sprintf("[RequestFilter.processCreate] : %s", err))
@@ -111,13 +157,13 @@ func (rf *RequestFilter) processCreate() Response {
 }
 
 func (rf *RequestFilter) getObject(useDocument bool) (map[string]any, error) {
-	primaryKey, err := rf.parseQueryParameters(true)
+	primaryKey, err := rf.parseQueryParameters()
 
 	if err != nil {
 		return nil, err
 	}
 
-	obj, err := rf.entityManager.FindOne(rf.serviceName, primaryKey)
+	obj, err := rf.entityManager.FindOne(rf.schemaName, primaryKey)
 
 	if err != nil {
 		return nil, err
@@ -156,13 +202,13 @@ func (rf *RequestFilter) processUpdate() Response {
 		return response
 	}
 
-	primaryKey, err := rf.parseQueryParameters(true)
+	primaryKey, err := rf.parseQueryParameters()
 
 	if err != nil {
 		return ResponseInternalServerError(fmt.Sprintf("[RequestFilter.processUpdate] : %s", err))
 	}
 
-	newObj, err := rf.entityManager.Update(rf.serviceName, primaryKey, rf.objIn)
+	newObj, err := rf.entityManager.Update(rf.schemaName, primaryKey, rf.objIn)
 
 	if err != nil {
 		return ResponseInternalServerError(fmt.Sprintf("[RequestFilter.processUpdate] : %s", err))
@@ -179,20 +225,20 @@ func (rf *RequestFilter) processDelete() Response {
 		return ResponseBadRequest(fmt.Sprintf("[RequestFilter.processDelete] don't find register with informed parameters : %s", err))
 	}
 
-	primaryKey, err := rf.parseQueryParameters(true)
+	primaryKey, err := rf.parseQueryParameters()
 
 	if err != nil {
 		return ResponseInternalServerError(fmt.Sprintf("[RequestFilter.processDelete] : %s", err))
 	}
 
-	err = rf.entityManager.DeleteOne(rf.serviceName, primaryKey)
+	err = rf.entityManager.DeleteOne(rf.schemaName, primaryKey)
 
 	if err != nil {
 		return ResponseInternalServerError(fmt.Sprintf("[RequestFilter.processDelete] : %s", err))
 	}
 
 	rf.notify(objDeleted, true)
-	return ResponseOk(objDeleted)
+	return ResponseOk(map[string]any{})
 }
 
 func (rf *RequestFilter) processPatch() Response {
@@ -219,33 +265,30 @@ func (rf *RequestFilter) processPatch() Response {
 	*/
 }
 
-func (rf *RequestFilter) parseQueryParameters(onlyPrimaryKey bool) (map[string]any, error) {
+func (rf *RequestFilter) parseQueryParameters() (map[string]any, error) {
 	// se não for admin, limita os resultados para as rufsGroup vinculadas a empresa do usuário
 	/*
 		const userRufsGroupOwner = tokenData.rufsGroupOwner;
-		const rufsGroupOwnerEntries = entityManager.dataStoreManager.getForeignKeyEntries(serviceName, "rufsGroupOwner");
-		const rufsGroupEntries = entityManager.dataStoreManager.getForeignKeyEntries(serviceName, "rufsGroup");
+		const rufsGroupOwnerEntries = entityManager.dataStoreManager.getPropertiesWithRef(serviceName, "rufsGroupOwner");
+		const rufsGroupEntries = entityManager.dataStoreManager.getPropertiesWithRef(serviceName, "rufsGroup");
 
 		if (userRufsGroupOwner > 1) {
 			if (rufsGroupOwnerEntries.length > 0) queryParameters[rufsGroupOwnerEntries[0].fieldName] = userRufsGroupOwner;
 			if (rufsGroupEntries.length > 0) queryParameters[rufsGroupEntries[0].fieldName] = tokenData.groups;
 		}
 	*/
-	schema, err := rf.microService.dataStoreManager.openapi.getSchemaFromParameters(rf.serviceName)
+	schema, err := rf.microService.openapi.getSchemaFromParameters(rf.path, rf.method)
 
 	if err != nil {
-		return nil, fmt.Errorf("[RequestFilter.processQuery] Fail to find schema from parameter of %s : %s", rf.serviceName, err)
+		return nil, fmt.Errorf("[RequestFilter.processQuery] Fail to find schema from parameter of %s.%s : %s", rf.path, rf.method, err)
 	}
 
-	obj, err := rf.microService.dataStoreManager.openapi.copyFields(schema, rf.queryParameters, false, false)
+	obj, err := rf.microService.openapi.copyFields(schema, rf.parameters, false, false, false)
 
 	if err != nil {
-		return nil, fmt.Errorf("[RequestFilter.processQuery] Fail to parse fields from parameter of %s : %s", rf.serviceName, err)
+		return nil, fmt.Errorf("[RequestFilter.processQuery] Fail to parse fields from parameter of %s.%s : %s", rf.path, rf.method, err)
 	}
 
-	if onlyPrimaryKey {
-		return obj, nil
-	}
 	/*
 		if (queryParameters.filter != undefined) ret.filter = OpenApi.copyFields(schema, rf.queryParameters.filter);
 		if (queryParameters.filterRangeMin != undefined) ret.filterRangeMin = OpenApi.copyFields(schema, rf.queryParameters.filterRangeMin);
@@ -274,31 +317,43 @@ func (rf *RequestFilter) processQuery() Response {
 			return nil, fmt.Errorf("[OpenApi.getParameterSchema] missing parameter %s of method %s in path %s", parameterName, method, path)
 		}
 
-		schema, err := getParameterSchema(rf.entityManager.dataStoreManager.openapi, "/"+rf.serviceName, rf.req.Method, "primaryKey")
+		schema, err := getParameterSchema(rf.entityManager.openapi, "/"+rf.serviceName, rf.method, "primaryKey")
 	*/
-	schema, err := rf.microService.dataStoreManager.openapi.getSchemaFromParameters(rf.serviceName)
+	schema, err := rf.microService.openapi.getSchemaFromParameters(rf.path, rf.method)
 
 	if err != nil {
-		return ResponseBadRequest(fmt.Sprintf("[RequestFilter.processQuery] Fail to find schema from parameter of %s : %s", rf.serviceName, err))
+		return ResponseBadRequest(fmt.Sprintf("[RequestFilter.processQuery] Fail to find schema from parameter of %s.%s : %s", rf.path, rf.method, err))
 	}
 
-	fields := make(map[string]any) //rf.parseQueryParameters(entityManager, tokenData, serviceName, queryParams) : null;
+	//const fields = Object.entries(this.parameters).length > 0 ? this.parseQueryParameters() : null;
+	fields, err := rf.parseQueryParameters()
+
+	if err != nil {
+		return ResponseBadRequest(fmt.Sprintf("[RequestFilter.processQuery] Fail to parser parameters of %s.%s : %s", rf.path, rf.method, err))
+	}
+
 	orderBy := []string{}
 
 	for fieldName, field := range schema.Properties {
-		if field.Type == "integer" || strings.Contains(field.Type, "date") || strings.Contains(field.Type, "time") {
+		dataType := field.Type
+
+		if field.Format != "" {
+			dataType = field.Format
+		}
+
+		if dataType == "integer" || strings.Contains(dataType, "date") || strings.Contains(dataType, "time") {
 			orderBy = append(orderBy, fieldName+" desc")
 		}
 	}
 
-	if list, err := rf.entityManager.Find(rf.serviceName, fields, orderBy); err != nil {
-		return ResponseBadRequest(fmt.Sprintf("[RequestFilter.processQuery] Fail to find items of %s : %s", rf.serviceName, err))
+	if list, err := rf.entityManager.Find(rf.schemaName, fields, orderBy); err != nil {
+		return ResponseBadRequest(fmt.Sprintf("[RequestFilter.processQuery] Fail to find items of %s : %s", rf.schemaName, err))
 	} else {
 		return ResponseOk(list)
 	}
 }
 
-func (rf *RequestFilter) CheckAuthorization(req *http.Request, serviceName string, uriPath string) (access bool, err error) {
+func (rf *RequestFilter) CheckAuthorization(req *http.Request) (access bool, err error) {
 	checkMask := func(mask int, method string) (ret bool) {
 		if idx := slices.Index([]string{"get", "post", "patch", "put", "delete", "query"}, method); idx >= 0 {
 			ret = mask&(1<<idx) != 0
@@ -307,23 +362,63 @@ func (rf *RequestFilter) CheckAuthorization(req *http.Request, serviceName strin
 		return ret
 	}
 
-	if rf.tokenPayload, err = rf.extractTokenPayload(req.Header["Authorization"][0]); err != nil {
-		return false, err
+	extractTokenPayload := func(tokenRaw string) (*TokenPayload, error) {
+		rufsClaims, err := RufsDecryptToken(tokenRaw)
+
+		if err == nil {
+			return &rufsClaims.TokenPayload, err
+		} else {
+			return nil, fmt.Errorf("Authorization token header invalid : %s", err)
+		}
 	}
 
-	if mask, ok := rf.tokenPayload.Roles[serviceName]; ok {
-		if uriPath == "" {
-			uriPath = strings.ToLower(req.Method)
-		}
+	for _, securityItem := range rf.microService.openapi.Security {
+		for securityName := range securityItem {
+			if securityScheme, ok := rf.microService.openapi.Components.SecuritySchemes[securityName]; ok && rf.tokenPayload == nil {
+				if securityScheme.Type == "http" && securityScheme.Scheme == "bearer" && securityScheme.BearerFormat == "JWT" {
+					authorizationHeaderPrefix := "Bearer "
+					tokenRaw := req.Header["Authorization"][0]
 
-		if checkMask(mask, uriPath) {
+					if strings.HasPrefix(tokenRaw, authorizationHeaderPrefix) {
+						tokenRaw = tokenRaw[len(authorizationHeaderPrefix):]
+
+						if rf.tokenPayload, err = extractTokenPayload(tokenRaw); err != nil {
+							return false, err
+						}
+					}
+				} else if securityScheme.Type == "apiKey" {
+					if securityScheme.In == "header" {
+						for headerName, headerArray := range req.Header {
+							if strings.ToLower(headerName) == strings.ToLower(securityScheme.Name) {
+								tokenRaw := headerArray[0]
+
+								if user, err := rf.microService.fileDbAdapter.FindOne("rufsUser", map[string]any{"password": tokenRaw}); err != nil || user == nil {
+									return false, err
+								} else {
+									rf.tokenPayload = &TokenPayload{}
+									buffer, _ := json.Marshal(user)
+									json.Unmarshal(buffer, rf.tokenPayload)
+								}
+
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if rf.tokenPayload == nil {
+		return false, fmt.Errorf("[RequestFilter.CheckAuthorization] missing security scheme for %s.%s", rf.path, rf.method)
+	}
+
+	if idx := slices.IndexFunc(rf.tokenPayload.Roles, func(e Role) bool { return e.Path == rf.path }); idx >= 0 {
+		if checkMask(rf.tokenPayload.Roles[idx].Mask, rf.method) {
 			access = true
-			rf.uriPath = uriPath
-			rf.req = req
-			rf.serviceName = serviceName
 		}
 	} else {
-		err = fmt.Errorf("[RequestFilter.CheckAuthorization] missing service %s in authorized roles", serviceName)
+		err = fmt.Errorf("[RequestFilter.CheckAuthorization] missing service %s.%s in authorized roles", rf.path, rf.method)
 	}
 
 	return access, err
@@ -357,58 +452,25 @@ func RufsDecryptToken(tokenString string) (*RufsClaims, error) {
 	}
 }
 
-func (rf *RequestFilter) extractTokenPayload(authorizationHeader string) (*TokenPayload, error) {
-	authorizationHeaderPrefix := "Bearer "
-
-	if strings.HasPrefix(authorizationHeader, authorizationHeaderPrefix) {
-		token := authorizationHeader[len(authorizationHeaderPrefix):]
-		rufsClaims, err := RufsDecryptToken(token)
-
-		if err == nil {
-			return &rufsClaims.TokenPayload, err
-		} else {
-			return nil, fmt.Errorf("Authorization token header invalid : %s", err)
-		}
-	} else {
-		return nil, fmt.Errorf("Authorization token header invalid")
-	}
-}
-
 func (rf *RequestFilter) ProcessRequest() Response {
 	var err error
-	method := rf.req.Method
-
-	if rf.req.URL.RawQuery != "" {
-		rf.queryParameters, err = qs.Unmarshal(rf.req.URL.RawQuery)
-
-		if err != nil {
-			return ResponseBadRequest(fmt.Sprintf("[RequestFilter.ProcessRequest] fail to parse url query parameters : %s", err))
-		}
-	}
-
-	if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch {
-		err := json.NewDecoder(rf.req.Body).Decode(&rf.objIn)
-
-		if err != nil {
-			return ResponseUnauthorized(fmt.Sprint(err))
-		}
-	}
-
 	var resp Response
-	if method == http.MethodGet && rf.uriPath == "query" {
+	schemaResponse, _ := rf.microService.openapi.getSchema(rf.path, rf.method, "responseObject")
+
+	if rf.method == "get" && schemaResponse != nil && schemaResponse.Type == "array" {
 		resp = rf.processQuery()
-	} else if method == "POST" {
+	} else if rf.method == "post" {
 		resp = rf.processCreate()
-	} else if method == "PUT" {
+	} else if rf.method == "put" {
 		resp = rf.processUpdate()
-	} else if method == "PATCH" {
+	} else if rf.method == "patch" {
 		resp = rf.processPatch()
-	} else if method == "DELETE" {
+	} else if rf.method == "delete" {
 		resp = rf.processDelete()
-	} else if method == "GET" {
+	} else if rf.method == "get" {
 		resp = rf.processRead()
 	} else {
-		return ResponseInternalServerError(fmt.Sprintf("[RequsetFilter.ProcessRequest] : unknow route for method %s and action %s", method, rf.uriPath))
+		return ResponseInternalServerError(fmt.Sprintf("[RequsetFilter.ProcessRequest] : unknow route for %s", rf.path))
 	}
 
 	if err != nil {
@@ -426,29 +488,51 @@ type NotifyMessage struct {
 }
 
 func (rf *RequestFilter) notify(obj map[string]any, isRemove bool) {
-	msg := NotifyMessage{rf.serviceName, "notify", rf.primaryKey}
+	schema, ok := rf.microService.openapi.getSchemaFromSchemas(rf.schemaName)
+
+	if !ok {
+		rf.microService.openapi.getSchemaFromSchemas(rf.schemaName)
+		log.Panicf("[RequestFilter.notify] missing schema response for path %s.", rf.path)
+		return
+	}
+
+	rf.parameters, _ = rf.microService.openapi.copyFields(schema, obj, false, false, true)
+	msg := NotifyMessage{rf.schemaName, "notify", rf.parameters}
 
 	if isRemove {
 		msg.Action = "delete"
 	}
 
 	//	dataSend, _ := json.Marshal(msg)
-	objRufsGroupOwner, _ := rf.microService.dataStoreManager.openapi.getPrimaryKeyForeign(rf.serviceName, "rufsGroupOwner", obj)
-	rufsGroup, _ := rf.microService.dataStoreManager.openapi.getPrimaryKeyForeign(rf.serviceName, "rufsGroup", obj)
+	objRufsGroupOwner, objRufsGroupOwnerErr := rf.microService.openapi.getPrimaryKeyForeign(rf.schemaName, "rufsGroupOwner", obj)
+	rufsGroup, rufsGroupErr := rf.microService.openapi.getPrimaryKeyForeign(rf.schemaName, "rufsGroup", obj)
 	log.Printf("[RequestFilter.notify] broadcasting %s ...", msg)
 
 	for tokenString, wsServerConnection := range rf.microService.wsServerConnections {
-		tokenData := rf.microService.wsServerTokens[tokenString]
+		tokenData := rf.microService.wsServerConnectionsTokens[tokenString]
 		// enviar somente para os clients de "rufsGroupOwner"
-		checkRufsGroupOwner := objRufsGroupOwner == nil || objRufsGroupOwner.PrimaryKey["id"] == tokenData.RufsGroupOwner
-		checkRufsGroup := rufsGroup == nil || sort.SearchInts(tokenData.Groups, rufsGroup.PrimaryKey["id"].(int)) >= 0
+		checkRufsGroupOwner := objRufsGroupOwner == nil
+
+		if checkRufsGroupOwner == false && objRufsGroupOwnerErr == nil {
+			if id, ok := objRufsGroupOwner.PrimaryKey["id"]; ok && id.(int64) == (int64)(tokenData.RufsGroupOwner) {
+				checkRufsGroupOwner = true
+			}
+		}
+
+		checkRufsGroup := rufsGroup == nil
+
+		if checkRufsGroup == false && rufsGroupErr == nil {
+			if id, ok := rufsGroup.PrimaryKey["id"]; ok && sort.SearchInts(tokenData.Groups, (int)(id.(int64))) >= 0 {
+				checkRufsGroup = true
+			}
+		}
 		// restrição de rufsGroup
 		if tokenData.RufsGroupOwner == 1 || (checkRufsGroupOwner && checkRufsGroup) {
-			role := tokenData.Roles[rf.serviceName]
-			// check get permission
-			if (role & 1) != 0 {
-				log.Printf("[RequestFilter.notify] send to client %s", tokenData.Name)
-				wsServerConnection.WriteJSON(msg)
+			if idx := slices.IndexFunc(tokenData.Roles, func(e Role) bool { return e.Path == rf.path }); idx >= 0 {
+				if (tokenData.Roles[idx].Mask & 0x01) != 0 {
+					log.Printf("[RequestFilter.notify] send to client %s", tokenData.Name)
+					wsServerConnection.WriteJSON(msg)
+				}
 			}
 		}
 	}

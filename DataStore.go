@@ -1021,8 +1021,14 @@ func FilterCheckMatchExact(item any, obj map[string]any) (bool, error) {
 	match := true
 
 	for fieldName, expected := range obj {
-		r := reflect.ValueOf(item)
-		f := reflect.Indirect(r).FieldByName(strings.Title(fieldName))
+		valueOf := reflect.ValueOf(item)
+		indirect := reflect.Indirect(valueOf)
+
+		if !indirect.IsValid() || !indirect.CanInterface() {
+			return false, fmt.Errorf("[FilterCheckMatchExact] broken reflection indirect of field %s", fieldName)
+		}
+
+		f := indirect.FieldByName(strings.Title(fieldName))
 
 		if !f.IsValid() {
 			return false, fmt.Errorf("[FilterCheckMatchExact] broken reflection of field %s", fieldName)
@@ -1062,7 +1068,7 @@ func FilterCheckMatchExact(item any, obj map[string]any) (bool, error) {
 	return match, nil
 }
 
-func FilterFind(listIn []any, filter map[string]any) ([]any, error) {
+func FilterFind(listIn []map[string]any, filter map[string]any) ([]map[string]any, error) {
 	if filter == nil {
 		return listIn, nil
 	}
@@ -1071,7 +1077,7 @@ func FilterFind(listIn []any, filter map[string]any) ([]any, error) {
 		return listIn, nil
 	}
 
-	var listOut []any
+	var listOut []map[string]any
 
 	for _, item := range listIn {
 		if isMatch, err := FilterCheckMatchExact(item, filter); err != nil {
@@ -1084,7 +1090,7 @@ func FilterFind(listIn []any, filter map[string]any) ([]any, error) {
 	return listOut, nil
 }
 
-func FilterFindIndex(list []any, obj map[string]any) (int, error) {
+func FilterFindIndex(list []map[string]any, obj map[string]any) (int, error) {
 	idx := -1
 
 	for i, item := range list {
@@ -1099,14 +1105,14 @@ func FilterFindIndex(list []any, obj map[string]any) (int, error) {
 	return idx, nil
 }
 
-func FilterFindOne(list []any, obj map[string]any) (ret *any, err error) {
+func FilterFindOne(list []map[string]any, obj map[string]any) (ret map[string]any, err error) {
 	idx, err := FilterFindIndex(list, obj)
 
 	if err != nil || idx < 0 {
 		return nil, err
 	}
 
-	return &list[idx], nil
+	return list[idx], nil
 }
 
 /*
