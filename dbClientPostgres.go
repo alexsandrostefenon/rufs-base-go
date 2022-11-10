@@ -333,44 +333,68 @@ func (dbSql *DbClientSql) FindOne(tableName string, queryParams map[string]any) 
 	}
 */
 func (dbSql *DbClientSql) Update(schemaName string, key map[string]any, obj map[string]any) (map[string]any, error) {
-	/*
-		tableName := CaseConvert.camelToUnderscore(schemaName, false)
-			const params = dbSql.client.enableParams ? [] : undefined;
-			var i = 1;
-			const list = [];
+	schema, ok := dbSql.openapi.getSchemaFromSchemas(schemaName)
 
-			for (let [fieldName, value] of Object.entries(obj)) {
-				const paramId = dbSql.client instanceof SqlAdapterNodeFirebird ? `?` : `$${i}`;
-				list.push(CaseConvert.camelToUnderscore(fieldName, false)+ "=" + (params != undefined ? paramId : dbSql.sqlStringify(value)));
+	if !ok {
+		return nil, fmt.Errorf(`[dbClientSql.Insert] : Missing schema %s`, schemaName)
+	}
 
-				if (params != undefined) {
-					if (Array.isArray(value) == true) {
-						var strArray = JSON.stringify(value);
-						params.push(strArray);
-					} else {
-						if (typeof(value) === "string" && value.length > 30000) console.error(`dbClientPostgres.insert: too large value of field ${fieldName}:\n${value}`);
-						params.push(value);
-					}
+	tableName := CamelToUnderscore(schemaName)
+	params := []any{}
+	sqlQuery := dbSql.buildQuery(key, &params, []string{})
+	list := []string{}
+	idx := 1
 
-					i++;
-				}
+	for fieldName, value := range obj {
+		if property, ok := schema.Properties[fieldName]; ok && property.IdentityGeneration != "" && value == nil {
+			continue
+		}
+
+		strField := CamelToUnderscore(fieldName)
+		strValue := fmt.Sprintf("$%d", idx)
+		list = append(list, fmt.Sprintf("%s=%s", strField, strValue))
+		idx++
+
+		switch v := value.(type) {
+		case map[string]any:
+			b, _ := json.Marshal(v)
+			params = append(params, string(b))
+		case []any:
+			elements := []pgtype.JSONB{}
+
+			for _, item := range v {
+				b, _ := json.Marshal(item)
+				element := pgtype.JSONB{Bytes: b, Status: pgtype.Present}
+				elements = append(elements, element)
 			}
 
-			const sql = `UPDATE ${tableName} SET ${list.join(",")}` + dbSql.buildQuery(primaryKey, params) + " RETURNING *";
+			dimensions := []pgtype.ArrayDimension{{Length: int32(len(elements)), LowerBound: 1}}
+			list := pgtype.JSONBArray{Elements: elements, Dimensions: dimensions, Status: pgtype.Present}
+			params = append(params, list)
+		default:
+			params = append(params, dbSql.openapi.getValueFromSchema(schema, fieldName, obj))
+		}
+	}
 
-			return dbSql.client.query(sql, params).then(result => {
-				if (result.rowCount == 0) {
-					throw new Error("NoResultException");
-				}
+	sql := fmt.Sprintf(`UPDATE %s SET %s %s RETURNING *`, tableName, strings.Join(list, ","), sqlQuery)
+	fmt.Println(sql)
+	rows, err := dbSql.client.Query(sql, params...)
 
-				return result.rows[0]
-			})
-			.catch(error => {
-				console.error(`DbClientPostgres.update(${tableName})\nprimaryKey:\n`, primaryKey, "\nupdateObj:\n", updateObj, "\nsql:\n", sql, "\nerror:\n", error);
-				throw error;
-			});
-	*/
-	return nil, nil
+	if err != nil {
+		return nil, err
+	}
+
+	if rows.Next() == false {
+		return nil, fmt.Errorf(`Failt to update : %s : %s`, sql, rows.Err())
+	}
+
+	item, err := dbSql.getMapFromRow(rows, schema)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return item, nil
 }
 
 func (dbSql *DbClientSql) DeleteOne(schemaName string, key map[string]any) error {
