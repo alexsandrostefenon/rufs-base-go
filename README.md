@@ -64,7 +64,7 @@ PGHOST=localhost PGPORT=5432 PGUSER=development PGPASSWORD=123456 psql rufs_nfe_
 PGHOST=localhost PGPORT=5432 PGUSER=development PGPASSWORD=123456 psql rufs_nfe_development -c "CREATE DATABASE rufs_nfe" &&
 PATH=$PATH:/usr/lib/go-1.18/bin $HOME/go/bin/dlv dap --check-go-version=false --listen=127.0.0.1:33797 --log-dest=3;
 PATH=$PATH:/usr/lib/go-1.18/bin $HOME/go/bin/dlv test --headless --listen=127.0.0.1:33797 --log-dest=3;
-PGHOST=localhost PGPORT=5432 PGUSER=development PGPASSWORD=123456 PGDATABASE=rufs_nfe /usr/lib/go-1.18/bin/go test -timeout 3600s -run ^TestNfe$
+PGHOST=localhost PGPORT=5432 PGUSER=development PGPASSWORD=123456 PGDATABASE=rufs_nfe go test -timeout 3600s -run ^TestNfe$
 #./rufs-base-go/__debug_bin -test.run ^TestNfe$
 
 
